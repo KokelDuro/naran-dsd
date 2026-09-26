@@ -483,7 +483,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
         <h1>Historial</h1>
         <p>Cada caso que apruebas enseña al sistema cómo escribes y cómo ordenas las fotos. Los datos viven en este equipo.</p>
       </div>
-      <button class="btn" data-go="1">Nuevo caso
+      <button class="btn" id="btn-nuevo">Nuevo caso
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
     </div>
 
@@ -802,6 +802,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     <div class="head">
       <div><span class="eyebrow">Paso 5 de 5</span><h1>Entrega</h1><p>Revisa cada archivo y marca los que quieres descargar. Todo se genera aquí, en tu navegador, y el caso queda en el historial.</p></div>
       <button class="btn ghost" id="btn-guardar">Guardar en historial</button>
+      <button class="btn ghost" id="btn-otro">Empezar otro caso</button>
       <button class="btn" id="dl-all">Descargar seleccionados <span class="cnt" id="dl-n">0</span></button>
     </div>
     <div class="stack">
@@ -1321,8 +1322,27 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
   /* ── arranque en blanco: nada de datos inventados ─────────────────── */
   function hoy(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-  function estadoInicial(){
-    var f=document.getElementById('f-fecha'); if(f&&!f.value)f.value=hoy();
+  function estadoInicial(nuevo){
+    var f=document.getElementById('f-fecha'); if(f&&(nuevo||!f.value))f.value=hoy();
+    if(nuevo){
+      ['f-nombre','f-edad','f-notas'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+      /* propuesta: sin presupuesto cargado */
+      prest.length=0; for(var k in faseOff)delete faseOff[k];
+      window.propReady=false;
+      var out=document.getElementById('pdf-out'); if(out)out.hidden=true;
+      var st=document.getElementById('pdf-state'); if(st){st.className='pill';st.textContent='Sin PDF';}
+      var pn=document.getElementById('pdf-name'); if(pn)pn.textContent='Arrastra el PDF de Dentalink';
+      var ps=document.getElementById('pdf-sub'); if(ps)ps.textContent='O elígelo con los botones. Se lee aquí mismo, no se sube a ningún servidor.';
+      var nota=document.getElementById('pdf-note'); if(nota)nota.textContent='';
+      try{ renderTable(); renderTotals(); }catch(e){ console.warn('[nuevo caso] propuesta',e); }
+      /* barras de progreso y avisos de la corrida anterior */
+      ['prog','desc-prog'].forEach(function(id){var b=document.getElementById(id);if(b){b.hidden=true;b.classList.remove('on');}});
+      /* la entrega vuelve a sus casillas por defecto */
+      document.querySelectorAll('#s5 .file').forEach(function(f2){delete f2.dataset.touched;});
+      var ce=document.getElementById('caso-estado'); if(ce){ce.className='pill';ce.textContent='Caso nuevo';}
+      /* el paso de textos vuelve a la primera pestaña */
+      var t0=document.querySelector('#t2seg [data-t="dsd"]'); if(t0&&t0.getAttribute('aria-selected')!=='true')t0.click();
+    }
     audios=[];
     Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
     slides.forEach(function(sl){if(sl.p)sl.p=[];}); tray.length=0;
@@ -1331,6 +1351,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     render();
     casoActual=null;
     cargarCasos();
+    if(nuevo)window.scrollTo({top:0});
     if(window.refreshPreviews)refreshPreviews();
     if(window.refreshFiles)refreshFiles();
   }
@@ -2028,6 +2049,25 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     else aviso((hechos===1?'Archivo descargado':hechos+' archivos descargados'),'Revisa la carpeta de descargas de tu navegador.');
   }
 
+  /* ── empezar otro caso: la página queda como recién abierta ────────── */
+  function hayTrabajo(){
+    if(audios.length||Object.keys(photos).length||prest.length)return true;
+    if((val('f-nombre')||'').trim())return true;
+    return IDS_TXT.some(function(id){var el=document.getElementById(id);return el&&el.value.trim();});
+  }
+  async function nuevoCaso(preguntar){
+    if(preguntar&&hayTrabajo()){
+      var ok=await confirmar('Empezar un caso nuevo',
+        'Se vacían los audios, las fotos y todos los textos de este caso. Lo que ya guardaste en el historial y los archivos que descargaste no se tocan.',
+        'Vaciar y empezar');
+      if(!ok)return false;
+    }
+    estadoInicial(true);
+    go(1);
+    aviso('Listo para el siguiente paciente','La página quedó en blanco.');
+    return true;
+  }
+
   /* ── entrega: names, availability, checklist ── */
   function slug(){return ((val('f-nombre')||'').trim()||'Paciente').replace(/\s+/g,'_');}
   window.refreshFiles=function(){
@@ -2053,6 +2093,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     else{var host=document.getElementById('dsd-lb-host')||(function(){var d=document.createElement('div');d.id='dsd-lb-host';d.hidden=true;document.body.appendChild(d);return d;})();
       host.innerHTML=slides.map(function(x,i){return (!x.hidden&&(x.fixed||x.p.length))?'<div class="sv" data-kind="dsd" data-si="'+i+'"></div>':'';}).join('');list=[].slice.call(host.querySelectorAll('.sv'));}
     openLb(list,0);});});
+  document.getElementById('btn-nuevo').addEventListener('click',function(){nuevoCaso(true);});
+  document.getElementById('btn-otro').addEventListener('click',async function(){
+    var b=this; b.disabled=true;
+    try{ if(hayTrabajo())await guardarCaso('entregado'); }catch(e){ console.warn('[guardar]',e); }
+    b.disabled=false;
+    nuevoCaso(false);
+  });
   document.getElementById('btn-guardar').addEventListener('click',async function(){
     var b=this,txt=b.textContent; b.disabled=true; b.textContent='Guardando…';
     try{ await guardarCaso('revisado'); b.textContent='Guardado ✓'; }
