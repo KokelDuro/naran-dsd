@@ -232,6 +232,9 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .fase .row{cursor:pointer;user-select:none;transition:box-shadow .15s,background .2s,opacity .2s}
 .fase .row.off{opacity:.55;box-shadow:var(--in-s)}
 .fase .row.off .p{text-decoration:line-through;text-decoration-color:var(--faint)}
+.drop-btns{display:flex;gap:8px;flex-wrap:wrap}
+.tile img,.fr img{width:100%;height:100%;object-fit:cover;display:block}
+.fr img{border-radius:inherit}
 .drop.over{box-shadow:var(--in),0 0 0 3px color-mix(in srgb,var(--brand) 35%,transparent)}
 .tbl input.in{min-width:120px;padding:6px 10px}
 .tbl .del{border:0;background:transparent;color:var(--faint);cursor:pointer;padding:4px;border-radius:6px}
@@ -484,23 +487,27 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
         </div>
       </section>
       <section class="card">
-        <div class="card-h"><h2>Carpeta del paciente</h2><span class="pill ok"><span class="d"></span>15 archivos detectados</span></div>
+        <div class="card-h"><h2>Carpeta del paciente</h2><span class="pill ok" id="inv-state"><span class="d"></span>15 archivos de ejemplo</span></div>
         <p class="hint">Arrastra la carpeta completa o elige los archivos. Se aceptan audios (m4a, mp3, wav) e imágenes (jpg, png, heic).</p>
         <div class="drop" id="drop">
+          <input type="file" id="f-dir" webkitdirectory directory multiple hidden>
+          <input type="file" id="f-files" multiple accept="audio/*,image/*,.m4a,.heic" hidden>
           <span class="fi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
-          <div><b>Matías Rojas / consulta 18-09</b><small>2 audios · 12 fotos · 1 archivo ignorado. Suelta otra carpeta para reemplazar.</small></div>
-          <button class="btn ghost" type="button">Elegir archivos</button>
+          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">Caso de ejemplo cargado. Suelta una carpeta, o elígela con los botones.</small></div>
+          <div class="drop-btns"><button class="btn ghost" type="button" id="btn-dir">Elegir carpeta</button><button class="btn ghost" type="button" id="btn-files">Elegir archivos</button></div>
         </div>
         <div class="inv">
           <div class="inv-box">
-            <div class="t">Audios <small>42 min en total</small></div>
+            <div class="t">Audios <small id="aud-tot">42 min en total</small></div>
+            <div id="aud-list">
             <div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Consulta parte 1.m4a</span><small>27:14</small></div>
             <div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Consulta parte 2.m4a</span><small>14:52</small></div>
+            </div>
           </div>
           <div class="inv-box">
-            <div class="t">Fotos <small>12 · se clasifican en el análisis</small></div>
+            <div class="t">Fotos <small id="fot-tot">12 · se clasifican en el análisis</small></div>
             <div class="strip" id="strip"></div>
-            <div class="ign"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4M12 16h.01M4.9 19h14.2a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0L3.2 16a2 2 0 0 0 1.7 3z"/></svg>Ignorado: <code>notas.txt</code></div>
+            <div class="ign" id="ign"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4M12 16h.01M4.9 19h14.2a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0L3.2 16a2 2 0 0 0 1.7 3z"/></svg><span>Ignorado: <code>notas.txt</code></span></div>
           </div>
         </div>
       </section>
@@ -825,6 +832,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 <script>
 (function(){
   var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   function spring(o){
     var x=o.from,v=o.velocity||0,to=o.to,w=2*Math.PI/(o.response||.35),k=w*w,c=2*(o.damping==null?1:o.damping)*w,last=null,raf,live=true;
     var h={stop:function(){live=false;cancelAnimationFrame(raf);},x:x,v:v};
@@ -865,7 +873,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var photos={p1:{n:'IMG_0231',k:'face'},p2:{n:'IMG_0232',k:'face'},p3:{n:'IMG_0235',k:'face'},p4:{n:'IMG_0236',k:'face'},p5:{n:'IMG_0240',k:'smile'},p6:{n:'IMG_0241',k:'smile'},p7:{n:'IMG_0242',k:'smile',rv:true},p8:{n:'scan_front',k:'scan'},p9:{n:'scan_sup',k:'scan'},p10:{n:'scan_inf',k:'scan'},p11:{n:'scan_lat',k:'scan',rv:true},p12:{n:'pano_2026',k:'rx'}};
   var slides=[{t:'Portada',fixed:true},{t:'Tu caso',p:['p1'],max:1},{t:'Frase síntesis',fixed:true},{t:'Retrato',p:['p2'],max:1},{t:'Perfiles',p:['p3','p4'],max:2},{t:'Sonrisa',p:['p5','p6','p7'],max:3},{t:'Escaneo intraoral',p:['p8','p9','p10'],max:5},{t:'Mapas oclusales',p:[],max:4},{t:'Rx panorámica',p:['p12'],max:1},{t:'Rx periapical',p:[],max:2},{t:'Cierre',fixed:true}];
   var tray=['p11'];
-  function tileHTML(id){var p=photos[id];return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+p.n+'">'+ICON[p.k]+(p.rv?'<span class="rv"></span>':'')+'<span class="nm">'+p.n+'</span></div>';}
+  function tileHTML(id){var p=photos[id];return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+(p.rv?'<span class="rv"></span>':'')+'<span class="nm">'+p.n+'</span></div>';}
   document.getElementById('strip').innerHTML=Object.keys(photos).map(function(id){var p=photos[id];return '<div class="tile '+p.k+'" style="cursor:default;width:42px;height:42px">'+ICON[p.k]+'</div>';}).join('');
 
   var sb=document.getElementById('sb');
@@ -921,12 +929,144 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
   document.addEventListener('pointerup',endDrag);document.addEventListener('pointercancel',endDrag);
 
+  /* ── carpeta del paciente: audios + fotos reales ──────────────────── */
+  var AUDIO_RE=/\.(m4a|mp3|wav|ogg|aac|flac|opus|mp4a|caf|amr)$/i, IMG_RE=/\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/i;
+  var esAudio=function(f){return (f.type||'').startsWith('audio/')||AUDIO_RE.test(f.name);};
+  var esFoto =function(f){return (f.type||'').startsWith('image/')||IMG_RE.test(f.name);};
+  var mmss=function(s){s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+  var mb=function(b){return b>=1048576?(b/1048576).toFixed(1).replace('.',',')+' MB':Math.round(b/1024)+' KB';};
+
+  function duracion(file){
+    return new Promise(function(res){
+      var a=document.createElement('audio'),u=URL.createObjectURL(file),listo=false;
+      var fin=function(d){if(listo)return;listo=true;URL.revokeObjectURL(u);res(d);};
+      a.preload='metadata';
+      a.onloadedmetadata=function(){fin(isFinite(a.duration)?a.duration:0);};
+      a.onerror=function(){fin(0);};
+      setTimeout(function(){fin(0);},4000);
+      a.src=u;
+    });
+  }
+
+  /* Heurística local, sin IA: escala de grises → radiografía; muy ancha → panorámica. */
+  function clasificaLocal(url){
+    return new Promise(function(res){
+      var img=new Image();
+      img.onload=function(){
+        try{
+          var c=document.createElement('canvas'),L=64;c.width=L;c.height=L;
+          var x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,L,L);
+          var d=x.getImageData(0,0,L,L).data,gris=0,tot=0,osc=0;
+          for(var i=0;i<d.length;i+=4){
+            var r=d[i],g=d[i+1],b=d[i+2],mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+            if(mx-mn<18)gris++; if((r+g+b)/3<90)osc++; tot++;
+          }
+          var ratio=img.naturalWidth/img.naturalHeight;
+          if(gris/tot>0.9&&osc/tot>0.25) return res({k:'rx',cat:ratio>1.8?'rx_panoramica':'rx_periapical'});
+          res({k:null,cat:null});
+        }catch(e){res({k:null,cat:null});}
+      };
+      img.onerror=function(){res({k:null,cat:null});};
+      img.src=url;
+    });
+  }
+
+  var audios=[];               /* [{f,dur}] */
+  function pintaInventario(ignorados){
+    document.getElementById('aud-list').innerHTML=audios.length?audios.map(function(a){
+      return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(a.f.name)+'">'+esc(a.f.name)+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(a.f.size)+'</small></div>';
+    }).join(''):'<div class="ign" style="margin:0"><span>Ningún audio en la carpeta.</span></div>';
+    var tot=audios.reduce(function(s,a){return s+(a.dur||0);},0);
+    document.getElementById('aud-tot').textContent=audios.length?(tot?mmss(tot)+' en total':audios.length+' archivos'):'—';
+    var ids=Object.keys(photos);
+    document.getElementById('strip').innerHTML=ids.map(function(id){var p=photos[id];
+      return '<div class="tile '+(p.k||'face')+'" style="cursor:default;width:42px;height:42px" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k||'face'])+'</div>';}).join('');
+    document.getElementById('fot-tot').textContent=ids.length+' · se clasifican en el análisis';
+    var ign=document.getElementById('ign');
+    if(ignorados&&ignorados.length){ign.hidden=false;ign.querySelector('span').innerHTML='Ignorado'+(ignorados.length>1?'s':'')+': '+ignorados.slice(0,4).map(function(x){return '<code>'+esc(x)+'</code>';}).join(' ')+(ignorados.length>4?' y '+(ignorados.length-4)+' más':'');}
+    else ign.hidden=true;
+    var st=document.getElementById('inv-state');
+    st.innerHTML='<span class="d"></span>'+(audios.length+ids.length)+' archivos · '+audios.length+' audio'+(audios.length===1?'':'s')+' y '+ids.length+' foto'+(ids.length===1?'':'s');
+  }
+
+  async function cargarArchivos(lista, etiqueta){
+    var aud=[],fot=[],ign=[];
+    for(var i=0;i<lista.length;i++){var f=lista[i];
+      if(/^\./.test(f.name)) continue;
+      if(esAudio(f))aud.push(f); else if(esFoto(f))fot.push(f); else ign.push(f.name);}
+    if(!aud.length&&!fot.length){
+      document.getElementById('drop-s').textContent='En esa carpeta no había audios ni imágenes. El caso de ejemplo sigue cargado.';
+      return;
+    }
+    var orden=function(a,b){return a.name.localeCompare(b.name,'es',{numeric:true});};
+    aud.sort(orden); fot.sort(orden);
+
+    document.getElementById('drop-t').textContent=etiqueta||'Carpeta cargada';
+    document.getElementById('drop-s').textContent='Leyendo ' + (aud.length+fot.length) + ' archivos…';
+
+    /* fotos → reemplazan el caso de ejemplo */
+    Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
+    slides.forEach(function(sl){if(sl.p)sl.p=[];});
+    tray.length=0;
+    for(var j=0;j<fot.length;j++){
+      var id='f'+j,url=URL.createObjectURL(fot[j]);
+      var cl=await clasificaLocal(url);
+      photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:url,file:fot[j],rv:!cl.k};
+      if(cl.cat==='rx_panoramica')slides[8].p.push(id);
+      else if(cl.cat==='rx_periapical')slides[9].p.push(id);
+      else tray.push(id);
+    }
+    /* audios → duraciones */
+    audios=aud.map(function(f){return {f:f,dur:0};});
+    pintaInventario(ign);
+    for(var k=0;k<audios.length;k++){audios[k].dur=await duracion(audios[k].f);pintaInventario(ign);}
+
+    var conRx=fot.length-tray.length;
+    document.getElementById('drop-s').innerHTML=aud.length+' audio'+(aud.length===1?'':'s')+' · '+fot.length+' foto'+(fot.length===1?'':'s')+
+      (conRx?' · '+conRx+' radiografía'+(conRx===1?'':'s')+' detectada'+(conRx===1?'':'s'):'')+
+      '. El resto se clasifica al analizar; mientras, están en «Sin asignar» del paso 3.';
+    render(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles();
+  }
+
+  var dz1=document.getElementById('drop');
+  document.getElementById('btn-dir').addEventListener('click',function(){document.getElementById('f-dir').click();});
+  document.getElementById('btn-files').addEventListener('click',function(){document.getElementById('f-files').click();});
+  document.getElementById('f-dir').addEventListener('change',function(e){
+    var fs=[].slice.call(e.target.files),raiz=(fs[0]&&fs[0].webkitRelativePath||'').split('/')[0];
+    cargarArchivos(fs,raiz||'Carpeta cargada'); e.target.value='';});
+  document.getElementById('f-files').addEventListener('change',function(e){
+    cargarArchivos([].slice.call(e.target.files),e.target.files.length+' archivos'); e.target.value='';});
+
+  /* arrastrar una carpeta completa: hay que recorrer el árbol de entradas */
+  function leerEntrada(entry,out){
+    return new Promise(function(res){
+      if(entry.isFile)entry.file(function(f){out.push(f);res();},function(){res();});
+      else if(entry.isDirectory){
+        var rd=entry.createReader(),todas=[];
+        (function sig(){rd.readEntries(function(ents){
+          if(!ents.length)return Promise.all(todas.map(function(e){return leerEntrada(e,out);})).then(res);
+          todas=todas.concat(ents); sig();
+        },function(){res();});})();
+      } else res();
+    });
+  }
+  ['dragenter','dragover'].forEach(function(ev){dz1.addEventListener(ev,function(e){e.preventDefault();dz1.classList.add('over');});});
+  ['dragleave','drop'].forEach(function(ev){dz1.addEventListener(ev,function(e){e.preventDefault();dz1.classList.remove('over');});});
+  dz1.addEventListener('drop',async function(e){
+    var items=e.dataTransfer.items,out=[],raiz='';
+    if(items&&items.length&&items[0].webkitGetAsEntry){
+      var ents=[].slice.call(items).map(function(i){return i.webkitGetAsEntry();}).filter(Boolean);
+      if(ents.length===1&&ents[0].isDirectory)raiz=ents[0].name;
+      for(var i=0;i<ents.length;i++)await leerEntrada(ents[i],out);
+    } else out=[].slice.call(e.dataTransfer.files);
+    cargarArchivos(out,raiz||'Archivos soltados');
+  });
+
   /* propuesta: leer PDF → prestaciones; fase escrita por el usuario; totales por fase */
   var prest=[];          /* [nombre, pieza, precio, fase] */
   var faseOff={};        /* fases excluidas del total (toggle) */
   var tb=document.querySelector('#ptbl tbody');
   function clp(v){return '$ '+Math.round(v).toLocaleString('es-CL');}
-  function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   function renderTable(){
     tb.innerHTML=prest.map(function(r,i){return '<tr><td><input class="in" data-k="0" data-i="'+i+'" value="'+esc(r[0])+'" style="min-width:200px"></td><td><input class="in" data-k="1" data-i="'+i+'" value="'+esc(r[1])+'" style="min-width:70px;width:90px"></td><td class="num"><input class="in" data-k="2" data-i="'+i+'" value="'+(r[2]?r[2].toLocaleString('es-CL'):'')+'" style="text-align:right;width:110px;min-width:90px"></td><td style="white-space:nowrap"><input class="in" data-k="3" data-i="'+i+'" list="fases" placeholder="Escribe la fase" value="'+esc(r[3])+'"> <button class="del" data-del="'+i+'" aria-label="Quitar">✕</button></td></tr>';}).join('');
   }
@@ -1015,7 +1155,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function pt(v){return (v*96/72).toFixed(1)+'px';}
   function tx(x,y,w,h,str,size,o){o=o||{};return '<div class="t'+(o.serif?' serif':'')+'" style="left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px;font-size:'+pt(size)+';color:#'+(o.color||'16201f')+(o.bold?';font-weight:700':'')+(o.italic?';font-style:italic':'')+(o.align?';text-align:'+o.align:'')+(o.mid?';display:flex;align-items:center;justify-content:center':'')+(o.ls?';line-height:'+o.ls:'')+'">'+esc(str)+'</div>';}
   function logo(x,y,w){return '<div class="lg" style="left:'+x+'px;top:'+y+'px;width:'+w+'px"></div>';}
-  function fr(x,y,w,h,pid,label){var p=pid&&photos[pid];return '<div class="fr '+(p?p.k:'none')+'" style="left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px">'+(p?ICON[p.k]+'<span class="fn">'+esc(p.n)+'</span>':'<span class="fl">'+esc(label)+'</span>')+'</div>';}
+  function fr(x,y,w,h,pid,label){var p=pid&&photos[pid];return '<div class="fr '+(p?p.k:'none')+'" style="left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px">'+(p?(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+'<span class="fn">'+esc(p.n)+'</span>':'<span class="fl">'+esc(label)+'</span>')+'</div>';}
   function val(id){var el=document.getElementById(id);return el?el.value:'';}
   function cap(str){return tx(48,485,860,30,str,11,{color:'a8d0c8',bold:true});}
   function darkHead(){return logo(792,31,120);}
