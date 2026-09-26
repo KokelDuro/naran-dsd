@@ -1,0 +1,14 @@
+name = "naran-dsd"
+pages_build_output_dir = "public"
+compatibility_date = "2026-09-25"
+compatibility_flags = ["nodejs_compat"]
+
+# Los secretos NO van aquí. Se cargan con:
+#   npx wrangler pages secret put GEMINI_API_KEY
+# o desde el panel: Workers & Pages → naran-dsd → Settings → Variables.
+#
+# Variables no secretas (se pueden dejar en el panel o descomentar aquí):
+# [vars]
+# SUPABASE_URL = "https://xxxxxxxx.supabase.co"
+# SUPABASE_ANON_KEY = "eyJ..."
+# GEMINI_MODEL = ""          # vacío = la función elige un Flash disponible

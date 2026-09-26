@@ -1,0 +1,21 @@
+# Secretos y entorno — NUNCA al repositorio
+.env
+.env.*
+.dev.vars
+*.key
+*.pem
+
+# Datos de pacientes — nada clínico vive en el repo
+casos/
+pacientes/
+*.m4a
+*.mp3
+*.wav
+*.heic
+Presupuesto_*.pdf
+
+# Herramientas
+node_modules/
+.wrangler/
+.DS_Store
+Thumbs.db
