@@ -293,7 +293,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 /* ── slide preview (960×540 canvas scaled to fit) ── */
 .sv{position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;box-shadow:var(--up-xs);cursor:zoom-in;background:#f6f9f8;transition:transform .2s var(--spring),box-shadow .2s}
 .sv:hover{transform:translateY(-2px);box-shadow:var(--up-s)}
-.sv-in{position:absolute;left:0;top:0;width:960px;height:540px;transform-origin:0 0;font-family:Calibri,Carlito,"Segoe UI",Arial,sans-serif;color:#16201f;background:#f6f9f8;line-height:1.15;pointer-events:none}
+.sv-in{color-scheme:light;position:absolute;left:0;top:0;width:960px;height:540px;transform-origin:0 0;font-family:Calibri,Carlito,"Segoe UI",Arial,sans-serif;color:#16201f;background:#f6f9f8;line-height:1.15;pointer-events:none}
 .sv-in.grad{background:linear-gradient(135deg,#d6ebe5 0%,#a8d0c8 55%,#88d0b8 100%)}
 .sv-in.dark{background:#0e1a1a;color:#f6f9f8}
 .sv-in .t{position:absolute;white-space:pre-wrap;overflow:hidden}
@@ -311,8 +311,8 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .sv-in .fr .fl{font-size:15px;font-weight:700;letter-spacing:.02em;opacity:.8}
 .sv-in .cd{position:absolute;border-radius:14px;background:#e9f1ef}
 .sv-in .cd.on{background:#306468}
-.sv-in .bar{position:absolute;display:flex}
-.sv-in .bar i{flex:1}
+.sv-in .escala{position:absolute;display:flex;background:none}
+.sv-in .escala i{flex:1}
 .sv-list{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .sv-list .it{display:grid;gap:6px}
 .sv-list .it small{color:var(--muted);font-weight:600;font-size:12px;padding-left:2px}
@@ -1592,7 +1592,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       return {cls:'dark',h:darkHead()+h+cap('Sonrisa')};},
     escaneo:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Escaneo intraoral'])+cap('Escaneo intraoral')};},
     mapas:function(sl){var h=darkHead()+fotos(sl.p,48,58,864,370,['Mapas oclusales']);
-      h+='<div class="bar" style="left:336px;top:442px;width:288px;height:21px"><i style="background:#d9342b"></i><i style="background:#e8842a"></i><i style="background:#f2c230"></i><i style="background:#8fd14f"></i><i style="background:#3fb8d8"></i><i style="background:#2d55d8"></i></div>'+tx(336,466,288,20,'0.0     0.2     0.4     0.6     0.8     1.0 mm',8,{color:'a8d0c8',align:'center'})+cap('Mapas de contacto oclusal');return {cls:'dark',h:h};},
+      h+='<div class="escala" style="left:336px;top:442px;width:288px;height:21px"><i style="background:#d9342b"></i><i style="background:#e8842a"></i><i style="background:#f2c230"></i><i style="background:#8fd14f"></i><i style="background:#3fb8d8"></i><i style="background:#2d55d8"></i></div>'+tx(336,466,288,20,'0.0     0.2     0.4     0.6     0.8     1.0 mm',8,{color:'a8d0c8',align:'center'})+cap('Mapas de contacto oclusal');return {cls:'dark',h:h};},
     rxpano:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografía panorámica'])+cap('Radiografías')};},
     rxperi:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografías periapicales'])+cap('Radiografías periapicales')};},
     cierre:function(){return {cls:'grad',h:logo(230,163,499)+tx(77,437,806,30,'Naran Estudio Dental  ·  Propuesta preparada especialmente para ti',11,{color:'234c50',align:'center'})};},
@@ -1815,7 +1815,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     }
     if(!doc)throw new Error('Ninguna lámina se pudo dibujar');
     bajar(doc.output('blob'),nombre);
-    if(saltadas)console.warn('[pdf] láminas omitidas:',saltadas);
+    if(saltadas)throw new Error('El archivo se descargó, pero '+saltadas+(saltadas===1?' lámina quedó fuera porque no se pudo dibujar':' láminas quedaron fuera porque no se pudieron dibujar'));
   }
   async function pdfDeDocumento(kind,nombre){
     var r=DOC[kind]();
@@ -1864,7 +1864,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
           slide.addShape(pptx.ShapeType.roundRect,{x:x,y:y,w:w,h:h,fill:{color:hex(cs.backgroundColor)},line:{type:'none'},rectRadius:0.1});
           return;
         }
-        if(el.classList.contains('bar')){
+        if(el.classList.contains('escala')){
           [].slice.call(el.children).forEach(function(b){
             slide.addShape(pptx.ShapeType.rect,{x:IN(el.offsetLeft+b.offsetLeft),y:y,w:IN(b.offsetWidth),h:h,
               fill:{color:hex(getComputedStyle(b).backgroundColor)},line:{type:'none'}});
