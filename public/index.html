@@ -444,10 +444,10 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
     </div>
 
     <div class="stats">
-      <div class="stat"><span class="v">14</span><span class="l">Casos</span><span class="t">3 este mes</span></div>
-      <div class="stat"><span class="v">12</span><span class="l">DSD generados</span><span class="t">2 en revisión</span></div>
-      <div class="stat"><span class="v">81%</span><span class="l">Textos aprobados sin editar</span><span class="t">▲ desde 62% en el caso 1</span></div>
-      <div class="stat"><span class="v">0,6</span><span class="l">Fotos reubicadas por caso</span><span class="t">▼ desde 2,1</span></div>
+      <div class="stat"><span class="v" id="st-casos">0</span><span class="l">Casos</span><span class="t">—</span></div>
+      <div class="stat"><span class="v" id="st-dsd">0</span><span class="l">DSD generados</span><span class="t">—</span></div>
+      <div class="stat"><span class="v">—</span><span class="l">Textos aprobados sin editar</span><span class="t">se mide desde el 2º caso</span></div>
+      <div class="stat"><span class="v">—</span><span class="l">Fotos reubicadas por caso</span><span class="t">se mide desde el 2º caso</span></div>
     </div>
 
     <div class="hist">
@@ -460,10 +460,10 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       <aside class="side">
         <section class="card learn">
           <div class="card-h"><h2>Aprendizaje</h2><span class="pill brand">activo</span></div>
-          <p>En cada análisis nuevo, la IA recibe tus <b>últimas 5 correcciones</b> como ejemplos: textos que reescribiste y fotos que moviste de lámina. Así se acerca a tu estilo sin entrenar ningún modelo.</p>
+          <p>Desde el segundo caso, la IA recibe tus <b>últimas 5 correcciones</b> como ejemplos: textos que reescribiste y fotos que moviste de lámina. Así se acerca a tu estilo sin entrenar ningún modelo.</p>
           <div>
             <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px"><span>Textos aprobados sin editar</span><span>por caso</span></div>
-            <div class="spark" aria-label="Precisión por caso: de 62% a 81%"><i style="height:62%"></i><i style="height:60%"></i><i style="height:66%"></i><i style="height:70%"></i><i style="height:68%"></i><i style="height:74%"></i><i style="height:73%"></i><i style="height:78%"></i><i style="height:76%"></i><i style="height:80%"></i><i style="height:79%"></i><i style="height:81%"></i></div>
+            <div class="spark" aria-label="Sin datos todavía" style="opacity:.35"><i style="height:62%"></i><i style="height:60%"></i><i style="height:66%"></i><i style="height:70%"></i><i style="height:68%"></i><i style="height:74%"></i><i style="height:73%"></i><i style="height:78%"></i><i style="height:76%"></i><i style="height:80%"></i><i style="height:79%"></i><i style="height:81%"></i></div>
           </div>
           <label class="sw"><span><b>Usar mis correcciones</b><small>Se envían como ejemplos, sin datos del paciente</small></span><input type="checkbox" id="learn-on" checked><span class="tg" aria-hidden="true"></span></label>
           <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn ghost" style="flex:1;justify-content:center">Exportar historial</button><button class="btn ghost" style="flex:1;justify-content:center">Importar</button></div>
@@ -480,38 +480,38 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
         <h1>Nuevo caso</h1>
         <p>Suelta la carpeta del paciente. El sistema separa audios de fotos y ordena cada cosa; tú solo revisas.</p>
       </div>
-      <span class="pill warn">Caso de ejemplo · Matías R.</span>
+      <span class="pill" id="caso-estado">Caso nuevo</span>
     </div>
     <div class="stack">
       <section class="card">
         <div class="card-h"><h2>Paciente</h2><span class="pill">Solo el nombre de pila sale del equipo</span></div>
         <p class="hint">Los demás datos quedan en el historial local.</p>
         <div class="fields">
-          <div class="field"><label for="f-nombre">Nombre</label><input class="in" id="f-nombre" value="Matías Rojas"></div>
-          <div class="field"><label for="f-edad">Edad</label><input class="in" id="f-edad" type="number" value="34"></div>
-          <div class="field"><label for="f-fecha">Consulta</label><input class="in" id="f-fecha" type="date" value="2026-09-18"></div>
+          <div class="field"><label for="f-nombre">Nombre</label><input class="in" id="f-nombre" placeholder="Nombre del paciente" autocomplete="off"></div>
+          <div class="field"><label for="f-edad">Edad</label><input class="in" id="f-edad" type="number" placeholder="—" min="0" max="120"></div>
+          <div class="field"><label for="f-fecha">Consulta</label><input class="in" id="f-fecha" type="date"></div>
         </div>
       </section>
       <section class="card">
-        <div class="card-h"><h2>Carpeta del paciente</h2><span class="pill ok" id="inv-state"><span class="d"></span>15 archivos de ejemplo</span></div>
+        <div class="card-h"><h2>Carpeta del paciente</h2><span class="pill" id="inv-state">Sin archivos</span></div>
         <p class="hint">Arrastra la carpeta completa o elige los archivos. Se aceptan audios (m4a, mp3, wav) e imágenes (jpg, png, heic).</p>
         <div class="drop" id="drop">
           <input type="file" id="f-dir" webkitdirectory directory multiple hidden>
           <input type="file" id="f-files" multiple accept="audio/*,image/*,.m4a,.heic" hidden>
           <span class="fi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
-          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">Caso de ejemplo cargado. Suelta una carpeta, o elígela con los botones.</small></div>
+          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">O elígela con los botones. Se aceptan audios (m4a, mp3, wav) e imágenes (jpg, png, heic).</small></div>
           <div class="drop-btns"><button class="btn ghost" type="button" id="btn-dir">Elegir carpeta</button><button class="btn ghost" type="button" id="btn-files">Elegir archivos</button></div>
         </div>
         <div class="inv">
           <div class="inv-box">
-            <div class="t">Audios <small id="aud-tot">42 min en total</small></div>
+            <div class="t">Audios <small id="aud-tot">—</small></div>
             <div id="aud-list">
             <div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Consulta parte 1.m4a</span><small>27:14</small></div>
             <div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Consulta parte 2.m4a</span><small>14:52</small></div>
             </div>
           </div>
           <div class="inv-box">
-            <div class="t">Fotos <small id="fot-tot">12 · se clasifican en el análisis</small></div>
+            <div class="t">Fotos <small id="fot-tot">—</small></div>
             <div class="strip" id="strip"></div>
             <div class="ign" id="ign"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4M12 16h.01M4.9 19h14.2a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0L3.2 16a2 2 0 0 0 1.7 3z"/></svg><span>Ignorado: <code>notas.txt</code></span></div>
           </div>
@@ -520,7 +520,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       <section class="card">
         <div class="card-h"><h2>Notas para el análisis</h2><span class="pill">opcional</span></div>
         <p class="hint">Contexto que no quedó en el audio.</p>
-        <textarea class="in" id="f-notas" aria-label="Notas">Insistió varias veces en que le gusta el color de sus dientes. No blanquear en la propuesta.</textarea>
+        <textarea class="in" id="f-notas" aria-label="Notas" placeholder="Ej.: insistió en que le gusta el color de sus dientes; no blanquear."></textarea>
       </section>
     </div>
     <div class="prog card" id="prog" hidden>
@@ -555,7 +555,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       </nav>
       <div class="tpanel" data-t="dsd">
       <section class="card rv">
-        <div><div class="card-h"><h2>Textos del DSD</h2><span class="pill brand">estilo aprendido de 13 casos</span></div><p class="hint" style="margin-bottom:0">En segunda persona, tal como se le muestran al paciente.</p></div>
+        <div><div class="card-h"><h2>Textos del DSD</h2><span class="pill" id="pill-estilo">primer caso</span></div><p class="hint" style="margin-bottom:0">En segunda persona, tal como se le muestran al paciente.</p></div>
         <div class="rv-item"><div class="lbl"><span>Motivo de consulta</span><span class="pill">Lámina 2</span></div>
           <textarea class="in" id="r-motivo">Quieres mejorar la carilla de tu diente anterior, porque actualmente tiene un color diferente y no se ve armónica con el resto de tu sonrisa.</textarea>
           <div class="quote" id="q-motivo"><b>El paciente dijo · audio 1, 03:12</b>"Es este diente, el de adelante, que se ve más oscuro que los otros."</div></div>
@@ -858,14 +858,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   /* historial (example data) */
-  var cases=[
-    ['Matías Rojas','18 sep 2026','En revisión','warn',1,2],['Paulina Reyes','15 sep 2026','DSD generado','ok',0,0],['Marcelo Ibáñez','11 sep 2026','DSD generado','ok',1,0],
-    ['Daniela Cortés','4 sep 2026','DSD generado','ok',0,1],['Rodrigo Fuentes','28 ago 2026','DSD generado','ok',2,0],['Carolina Muñoz','21 ago 2026','DSD generado','ok',1,1],
-    ['Sebastián Araya','13 ago 2026','DSD generado','ok',3,2],['Fernanda Soto','6 ago 2026','DSD generado','ok',2,3]
-  ];
+  var cases=[];   /* se llenará con los casos reales cuando conectemos Supabase */
   var cl=document.getElementById('cases');
   function renderCases(q){
-    cl.innerHTML=cases.filter(function(c){return !q||c[0].toLowerCase().indexOf(q)>=0;}).map(function(c){
+    var lista=cases.filter(function(c){return !q||c[0].toLowerCase().indexOf(q)>=0;});
+    if(!lista.length){cl.innerHTML='<div style="padding:22px 4px;color:var(--muted);font-size:13px">'+(cases.length?'Ningún paciente con ese nombre.':'Todavía no hay casos guardados. El primero aparece aquí cuando termines la entrega.')+'</div>';return;}
+    cl.innerHTML=lista.map(function(c){
       var ini=c[0].split(' ').map(function(s){return s[0];}).join('');
       return '<div class="case" role="button" tabindex="0"><span class="av">'+ini+'</span><div><b>'+c[0]+'</b><small>'+c[1]+'</small></div>'+
         '<div class="m"><b>'+c[4]+'</b> textos editados<br><b>'+c[5]+'</b> fotos movidas</div><span class="pill '+c[3]+'"><span class="d"></span>'+c[2]+'</span></div>';
@@ -993,12 +991,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var ids=Object.keys(photos);
     document.getElementById('strip').innerHTML=ids.map(function(id){var p=photos[id];
       return '<div class="tile '+(p.k||'face')+'" style="cursor:default;width:42px;height:42px" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k||'face'])+'</div>';}).join('');
-    document.getElementById('fot-tot').textContent=ids.length+' · se clasifican en el análisis';
+    document.getElementById('fot-tot').textContent=ids.length?ids.length+' · se clasifican en el análisis':'—';
+    if(!ids.length)document.getElementById('strip').innerHTML='<span style="font-size:12px;color:var(--muted)">Ninguna foto todavía.</span>';
     var ign=document.getElementById('ign');
     if(ignorados&&ignorados.length){ign.hidden=false;ign.querySelector('span').innerHTML='Ignorado'+(ignorados.length>1?'s':'')+': '+ignorados.slice(0,4).map(function(x){return '<code>'+esc(x)+'</code>';}).join(' ')+(ignorados.length>4?' y '+(ignorados.length-4)+' más':'');}
     else ign.hidden=true;
-    var st=document.getElementById('inv-state');
-    st.innerHTML='<span class="d"></span>'+(audios.length+ids.length)+' archivos · '+audios.length+' audio'+(audios.length===1?'':'s')+' y '+ids.length+' foto'+(ids.length===1?'':'s');
+    var st=document.getElementById('inv-state'),tot=audios.length+ids.length;
+    st.className='pill'+(tot?' ok':'');
+    st.innerHTML=tot?('<span class="d"></span>'+tot+' archivos · '+audios.length+' audio'+(audios.length===1?'':'s')+' y '+ids.length+' foto'+(ids.length===1?'':'s')):'Sin archivos';
   }
 
   async function cargarArchivos(lista, etiqueta){
@@ -1014,6 +1014,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     aud.sort(orden); fot.sort(orden);
 
     document.getElementById('drop-t').textContent=etiqueta||'Carpeta cargada';
+    var ce=document.getElementById('caso-estado'); if(ce){ce.className='pill ok';ce.innerHTML='<span class="d"></span>Carpeta cargada';}
     document.getElementById('drop-s').textContent='Leyendo ' + (aud.length+fot.length) + ' archivos…';
 
     /* fotos → reemplazan el caso de ejemplo */
@@ -1075,7 +1076,22 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     cargarArchivos(out,raiz||'Archivos soltados');
   });
 
-  /* ── vaciar el caso de ejemplo ────────────────────────────────────── */
+  /* ── arranque en blanco: nada de datos inventados ─────────────────── */
+  function hoy(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+  function estadoInicial(){
+    var f=document.getElementById('f-fecha'); if(f&&!f.value)f.value=hoy();
+    audios=[];
+    Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
+    slides.forEach(function(sl){if(sl.p)sl.p=[];}); tray.length=0;
+    pintaInventario([]);
+    limpiarEjemplo();
+    render();
+    renderCases('');
+    if(window.refreshPreviews)refreshPreviews();
+    if(window.refreshFiles)refreshFiles();
+  }
+
+  /* ── vaciar los textos del caso ───────────────────────────────────── */
   var IDS_TXT=['r-motivo','r-busca','r-importante','r-expect','r-frase',
     'd-perfil','d-nombre','d-just','d-no','d-si','d-amp','d-cierre','d-ruta',
     'pc-f1','pc-cond','pc-ctx','pc-actual','pc-plan','pc-obj','pc-alt-cond','pc-alt','pc-alt-mejora','pc-alt-why',
@@ -1086,6 +1102,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var cl=document.getElementById('clin-list');if(cl)cl.innerHTML='<li style="color:var(--muted)">Aparecen al analizar el audio.</li>';
     document.getElementById('trans-body').innerHTML='<p style="color:var(--faint)">La transcripción aparece después de analizar la consulta.</p>';
     document.getElementById('trans-meta').textContent='—';
+    var cl2=document.getElementById('clin-list');
+    if(cl2)cl2.innerHTML='<li style="color:var(--muted)">Aparecen al analizar el audio.</li>';
     if(window.growAll2)growAll2();
     if(window.refreshPreviews)refreshPreviews();
   }
@@ -1419,7 +1437,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   ['d-perfil','d-nombre','d-just','d-no','d-si','d-amp','d-cierre','d-ruta','f-nombre','f-edad','f-fecha','pc-f1','pc-cond','pc-ctx','pc-actual','pc-plan','pc-obj','pc-alt-cond','pc-alt','pc-alt-mejora','pc-alt-why','pf-p1','pf-p2','pf-p3','pf-p2-alts','pf-p3-alts','pf-explicar','pf-p3-when'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',function(){document.querySelectorAll('.dv').forEach(drawDv);});});
 
   /* ── entrega: names, availability, checklist ── */
-  function slug(){return (val('f-nombre')||'Paciente').trim().replace(/\s+/g,'_');}
+  function slug(){return ((val('f-nombre')||'').trim()||'Paciente').replace(/\s+/g,'_');}
   window.refreshFiles=function(){
     var sl=slug();document.getElementById('fn-dsd-pptx').textContent='DSD_'+sl+'.pptx';document.getElementById('fn-dsd-pdf').textContent='DSD_'+sl+'.pdf';
     document.getElementById('fn-prop-pptx').textContent='Propuesta_'+sl+'.pptx';document.getElementById('fn-prop-pdf').textContent='Propuesta_'+sl+'.pdf';
@@ -1500,6 +1518,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function up(e){if(!sd||e.pointerId!==sd.id)return;var h=sd.hist,a=h[0],b=h[h.length-1],dt=(b[1]-a[1])||16,vel=(b[0]-a[0])/dt*1000;sd=null;grab.style.cursor='grab';to(y+project(vel)>H/2?H:0,vel);}
   sheet.addEventListener('pointerup',up);sheet.addEventListener('pointercancel',up);
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&open)to(H,0);});
+  estadoInicial();
 })();
 </script>
 

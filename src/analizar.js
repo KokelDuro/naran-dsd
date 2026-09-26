@@ -192,7 +192,11 @@ export async function analizar(request, env) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: partes }],
-        generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+        generationConfig: {
+          temperature: 0.3,
+          responseMimeType: 'application/json',
+          maxOutputTokens: 65536, // la transcripción de 40 min es larga: sin esto se corta a media frase
+        },
         safetySettings: [
           'HARM_CATEGORY_HARASSMENT',
           'HARM_CATEGORY_HATE_SPEECH',
@@ -206,18 +210,41 @@ export async function analizar(request, env) {
     if (!r.ok) {
       const msg = (data.error && data.error.message) || `Gemini respondió ${r.status}`;
       const cuota = r.status === 429;
+      console.log('[analizar] error de Gemini', r.status, msg);
       return json({ error: cuota ? 'Se acabó la cuota diaria de Gemini. Vuelve a intentar mañana.' : msg, cuota }, r.status);
     }
 
-    const texto = (((data.candidates || [])[0] || {}).content || {}).parts?.[0]?.text || '';
+    const cand = (data.candidates || [])[0] || {};
+    // Los modelos con razonamiento devuelven varias partes (incluidos "pensamientos"):
+    // hay que juntar todas las que traigan texto, no solo la primera.
+    const texto = ((cand.content || {}).parts || [])
+      .filter((p) => typeof p.text === 'string' && !p.thought)
+      .map((p) => p.text)
+      .join('')
+      .trim();
+
+    if (!texto) {
+      const motivo =
+        cand.finishReason === 'MAX_TOKENS'
+          ? 'La respuesta se cortó por largo. Prueba con un audio más corto.'
+          : cand.finishReason === 'SAFETY' || (data.promptFeedback || {}).blockReason
+            ? 'Gemini bloqueó el contenido por sus filtros de seguridad.'
+            : `Gemini respondió sin texto (${cand.finishReason || 'sin motivo'}).`;
+      console.log('[analizar] sin texto', JSON.stringify({ finishReason: cand.finishReason, promptFeedback: data.promptFeedback }));
+      return json({ error: motivo }, 502);
+    }
+
     let caso;
     try {
-      caso = JSON.parse(texto);
-    } catch {
-      return json({ error: 'Gemini no devolvió un JSON válido', crudo: texto.slice(0, 2000) }, 502);
+      // por si viniera envuelto en ```json … ```
+      caso = JSON.parse(texto.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, ''));
+    } catch (e) {
+      console.log('[analizar] JSON inválido', texto.slice(0, 500));
+      return json({ error: 'Gemini no devolvió un JSON válido', detalle: texto.slice(0, 300) }, 502);
     }
     return json({ ok: true, modelo: model, caso });
   } catch (e) {
+    console.log('[analizar] excepción', e && (e.stack || e.message || String(e)));
     return json({ error: e.message || String(e) }, 500);
   }
 }
