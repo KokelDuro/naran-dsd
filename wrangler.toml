@@ -8,7 +8,6 @@ workers_dev = true
 [assets]
 directory = "./public"
 binding = "ASSETS"
-not_found_handling = "404-page"
 
 # Los secretos NO van aquí. Se cargan con:
 #   npx wrangler secret put GEMINI_API_KEY
