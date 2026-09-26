@@ -12,6 +12,7 @@
  *   GEMINI_API_KEY   (secreto)   clave de Google AI Studio
  *   SUPABASE_URL     (texto)     https://xxxx.supabase.co
  *   SUPABASE_ANON_KEY(texto)     anon/publishable key
+ *   CLAVE_PRUEBA     (secreto)   clave compartida mientras no haya Supabase
  *   GEMINI_MODEL     (opcional)  p. ej. gemini-flash-latest
  */
 
@@ -24,16 +25,34 @@ const json = (obj, status = 200) =>
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
 
-/* ── 1. ¿Quién llama? ────────────────────────────────────────────────── */
-async function usuario(request, env) {
-  const auth = request.headers.get('authorization') || '';
-  if (!auth.toLowerCase().startsWith('bearer ')) return null;
-  const r = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: { authorization: auth, apikey: env.SUPABASE_ANON_KEY },
-  });
-  if (!r.ok) return null;
-  const u = await r.json();
-  return u && u.id ? u : null;
+/* ── 1. ¿Quién llama? ──────────────────────────────────────────────────
+ * Con Supabase configurado, manda la sesión del usuario.
+ * Mientras no lo esté (fase de pruebas), basta una clave compartida que se
+ * carga como secreto CLAVE_PRUEBA. Sin ninguna de las dos, no se atiende:
+ * así nadie que encuentre la URL puede gastar la cuota de Gemini.
+ */
+async function autorizado(request, env) {
+  if (env.SUPABASE_URL && env.SUPABASE_ANON_KEY) {
+    const auth = request.headers.get('authorization') || '';
+    if (!auth.toLowerCase().startsWith('bearer ')) return { ok: false, motivo: 'Necesitas iniciar sesión' };
+    const r = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+      headers: { authorization: auth, apikey: env.SUPABASE_ANON_KEY },
+    });
+    if (!r.ok) return { ok: false, motivo: 'Tu sesión expiró; vuelve a entrar' };
+    const u = await r.json();
+    return u && u.id ? { ok: true, uid: u.id } : { ok: false, motivo: 'Sesión inválida' };
+  }
+
+  if (env.CLAVE_PRUEBA) {
+    const dada = request.headers.get('x-clave') || '';
+    // comparación de tiempo constante, para no filtrar la clave por latencia
+    const a = new TextEncoder().encode(dada), b = new TextEncoder().encode(env.CLAVE_PRUEBA);
+    let dif = a.length ^ b.length;
+    for (let i = 0; i < Math.max(a.length, b.length); i++) dif |= (a[i] || 0) ^ (b[i] || 0);
+    return dif === 0 ? { ok: true, uid: 'clave-prueba' } : { ok: false, motivo: 'Clave incorrecta' };
+  }
+
+  return { ok: false, motivo: 'Falta configurar el acceso: carga el secreto CLAVE_PRUEBA (o conecta Supabase) en Cloudflare' };
 }
 
 /* ── 2. Elegir modelo ────────────────────────────────────────────────── */
@@ -147,8 +166,8 @@ export async function analizar(request, env) {
   try {
     if (!env.GEMINI_API_KEY) return json({ error: 'Falta configurar GEMINI_API_KEY' }, 500);
 
-    const u = await usuario(request, env);
-    if (!u) return json({ error: 'Necesitas iniciar sesión' }, 401);
+    const quien = await autorizado(request, env);
+    if (!quien.ok) return json({ error: quien.motivo }, 401);
 
     const form = await request.formData();
     const audios = form.getAll('audio').filter((f) => f && typeof f === 'object');

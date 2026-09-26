@@ -4,6 +4,7 @@ export async function salud(env) {
     gemini_key: !!env.GEMINI_API_KEY,
     supabase_url: !!env.SUPABASE_URL,
     supabase_anon: !!env.SUPABASE_ANON_KEY,
+    clave_prueba: !!env.CLAVE_PRUEBA,
     modelo_fijado: env.GEMINI_MODEL || '(automático)',
   };
   let modelos = null;
