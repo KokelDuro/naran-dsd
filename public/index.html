@@ -881,9 +881,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     rx:'<svg viewBox="0 0 64 64"><path d="M10 38q22-22 44 0" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="8" stroke-linecap="round"/></svg>'
   };
   var photos={p1:{n:'IMG_0231',k:'face'},p2:{n:'IMG_0232',k:'face'},p3:{n:'IMG_0235',k:'face'},p4:{n:'IMG_0236',k:'face'},p5:{n:'IMG_0240',k:'smile'},p6:{n:'IMG_0241',k:'smile'},p7:{n:'IMG_0242',k:'smile',rv:true},p8:{n:'scan_front',k:'scan'},p9:{n:'scan_sup',k:'scan'},p10:{n:'scan_inf',k:'scan'},p11:{n:'scan_lat',k:'scan',rv:true},p12:{n:'pano_2026',k:'rx'}};
-  var slides=[{t:'Portada',fixed:true},{t:'Tu caso',p:['p1'],max:1},{t:'Frase síntesis',fixed:true},{t:'Retrato',p:['p2'],max:1},{t:'Perfiles',p:['p3','p4'],max:2},{t:'Sonrisa',p:['p5','p6','p7'],max:3},{t:'Escaneo intraoral',p:['p8','p9','p10'],max:5},{t:'Mapas oclusales',p:[],max:4},{t:'Rx panorámica',p:['p12'],max:1},{t:'Rx periapical',p:[],max:2},{t:'Cierre',fixed:true}];
+  var slides=[{t:'Portada',fixed:true},{t:'Tu caso',p:[],max:1},{t:'Frase síntesis',fixed:true},{t:'Retrato',p:[],max:2},{t:'Perfiles',p:[],max:4},{t:'Sonrisa',p:[],max:4},{t:'Escaneo intraoral',p:[],max:6},{t:'Mapas oclusales',p:[],max:6},{t:'Rx panorámica',p:[],max:4},{t:'Rx periapical',p:[],max:6},{t:'Cierre',fixed:true}];
   var tray=['p11'];
-  function tileHTML(id){var p=photos[id];return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+(p.rv?'<span class="rv"></span>':'')+'<span class="nm">'+p.n+'</span></div>';}
+  function tileHTML(id){var p=photos[id];return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+(p.rv?'<span class="rv"></span>':'')+'</div>';}
   document.getElementById('strip').innerHTML=Object.keys(photos).map(function(id){var p=photos[id];return '<div class="tile '+p.k+'" style="cursor:default;width:42px;height:42px">'+ICON[p.k]+'</div>';}).join('');
 
   var sb=document.getElementById('sb');
@@ -892,7 +892,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var n=0;
     sb.innerHTML=slides.map(function(s,i){
       var idx=s.hidden?'·':(++n<10?'0'+n:n);
-      var meta=s.fixed?'sin fotos':(s.p.length?s.p.length+(s.p.length>1?' fotos':' foto')+' · hasta '+s.max:'vacía · se omite');
+      var meta=s.fixed?'sin fotos':(s.p.length?s.p.length+(s.p.length>1?' fotos':' foto')+(s.p.length<s.max?' · caben '+(s.max-s.p.length)+' más':' · lámina llena'):'vacía · se omite');
       var slots=s.fixed?'<div class="slots fixed"><span class="fx">Texto y logo · no lleva fotos</span></div>':'<div class="slots" data-slide="'+i+'">'+s.p.map(tileHTML).join('')+(s.p.length<s.max?'<div class="empty">+</div>':'')+'</div>';
       var rvc=s.p?s.p.filter(function(id){return photos[id].rv;}).length:0;
       return '<div class="sb'+(s.hidden?' hidden-s':'')+'" data-i="'+i+'"><div class="num">'+idx+'<small>'+(s.hidden?'oculta':'lámina')+'</small></div><div class="sv" data-kind="dsd" data-si="'+i+'"></div>'+
@@ -972,9 +972,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
             if(mx-mn<18)gris++; if((r+g+b)/3<90)osc++; tot++;
           }
           var ratio=img.naturalWidth/img.naturalHeight;
-          if(gris/tot>0.9&&osc/tot>0.25) return res({k:'rx',cat:ratio>1.8?'rx_panoramica':'rx_periapical'});
-          res({k:null,cat:null});
-        }catch(e){res({k:null,cat:null});}
+          if(gris/tot>0.9&&osc/tot>0.25) return res({k:'rx',cat:ratio>1.8?'rx_panoramica':'rx_periapical',ar:ratio});
+          res({k:null,cat:null,ar:ratio});
+        }catch(e){res({k:null,cat:null,ar:img.naturalWidth/img.naturalHeight||1.33});}
       };
       img.onerror=function(){res({k:null,cat:null});};
       img.src=url;
@@ -1024,7 +1024,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     for(var j=0;j<fot.length;j++){
       var id='f'+j,url=URL.createObjectURL(fot[j]);
       var cl=await clasificaLocal(url);
-      photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:url,file:fot[j],rv:!cl.k};
+      photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:url,file:fot[j],rv:!cl.k,ar:cl.ar||1.33};
       if(cl.cat==='rx_panoramica')slides[8].p.push(id);
       else if(cl.cat==='rx_periapical')slides[9].p.push(id);
       else tray.push(id);
@@ -1292,24 +1292,60 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function pt(v){return (v*96/72).toFixed(1)+'px';}
   function tx(x,y,w,h,str,size,o){o=o||{};return '<div class="t'+(o.serif?' serif':'')+'" style="left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px;font-size:'+pt(size)+';color:#'+(o.color||'16201f')+(o.bold?';font-weight:700':'')+(o.italic?';font-style:italic':'')+(o.align?';text-align:'+o.align:'')+(o.mid?';display:flex;align-items:center;justify-content:center':'')+(o.ls?';line-height:'+o.ls:'')+'">'+esc(str)+'</div>';}
   function logo(x,y,w){return '<div class="lg" style="left:'+x+'px;top:'+y+'px;width:'+w+'px"></div>';}
-  function fr(x,y,w,h,pid,label){var p=pid&&photos[pid];return '<div class="fr '+(p?p.k:'none')+'" style="left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px">'+(p?(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+'<span class="fn">'+esc(p.n)+'</span>':'<span class="fl">'+esc(label)+'</span>')+'</div>';}
+  function fr(x,y,w,h,pid,label){var p=pid&&photos[pid];
+    return '<div class="fr '+(p?p.k:'none')+'" style="left:'+Math.round(x)+'px;top:'+Math.round(y)+'px;width:'+Math.round(w)+'px;height:'+Math.round(h)+'px">'+
+      (p?(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k]):'<span class="fl">'+esc(label||'')+'</span>')+'</div>';}
+
+  /* Reparte n fotos dentro del área (X,Y,W,H): una fila hasta 3, dos filas
+     hasta 8. La última fila queda centrada y nunca sobran marcos vacíos. */
+  function rejilla(n,X,Y,W,H,g){
+    g=g==null?18:g; if(n<=0)return [];
+    var cols=n<=3?n:n<=4?2:n<=6?3:4, filas=Math.ceil(n/cols);
+    var cw=(W-(cols-1)*g)/cols, ch=(H-(filas-1)*g)/filas;
+    if(filas===1&&cols>1&&ch>cw*1.35)ch=cw*1.35;            /* que no queden columnas larguísimas */
+    var altoTotal=filas*ch+(filas-1)*g, y0=Y+(H-altoTotal)/2, out=[];
+    for(var i=0;i<n;i++){
+      var f=Math.floor(i/cols), c=i%cols, enFila=Math.min(cols,n-f*cols);
+      var ancho=enFila*cw+(enFila-1)*g;
+      out.push({x:X+(W-ancho)/2+c*(cw+g), y:y0+f*(ch+g), w:cw, h:ch});
+    }
+    return out;
+  }
+
+  /* Con una sola foto, el marco toma la proporción real de la imagen. */
+  function marcoUnico(pid,X,Y,W,H){
+    var p=photos[pid], ar=(p&&p.ar)||1.33, w=W, h=W/ar;
+    if(h>H){h=H;w=H*ar;}
+    return {x:X+(W-w)/2, y:Y+(H-h)/2, w:w, h:h};
+  }
+
+  /* Dibuja las fotos de una lámina con la rejilla que corresponda. */
+  function fotos(lista,X,Y,W,H,etiquetas){
+    lista=(lista||[]).filter(Boolean);
+    if(!lista.length)return fr(X+(W-W*0.45)/2,Y,W*0.45,H,null,(etiquetas&&etiquetas[0])||'Sin fotos');
+    if(lista.length===1){var m=marcoUnico(lista[0],X,Y,W,H);return fr(m.x,m.y,m.w,m.h,lista[0]);}
+    return rejilla(lista.length,X,Y,W,H).map(function(r,i){return fr(r.x,r.y,r.w,r.h,lista[i]);}).join('');
+  }
   function val(id){var el=document.getElementById(id);return el?el.value:'';}
   function cap(str){return tx(48,485,860,30,str,11,{color:'a8d0c8',bold:true});}
   function darkHead(){return logo(792,31,120);}
   var SLIDE={
     portada:function(){return {cls:'grad',h:tx(77,120,480,48,'Bienvenido a',22,{serif:true,color:'234c50'})+logo(77,178,499)+tx(442,437,460,48,'Te estábamos esperando…',20,{serif:true,italic:true,color:'234c50',align:'right'})};},
-    tucaso:function(sl){var name=val('f-nombre')||'Paciente',age=val('f-edad');var h=logo(792,31,120)+fr(58,72,288,394,sl&&sl.p&&sl.p[0],'Retrato serio')+tx(384,72,518,48,name,26,{serif:true,color:'306468'})+tx(384,117,518,30,(age?age+' años  ·  ':'')+'Consulta',11,{color:'5d6f6d'});
+    tucaso:function(sl){var name=val('f-nombre')||'Paciente',age=val('f-edad');var h=logo(792,31,120)+fr(58,72,288,394,sl&&sl.p&&sl.p[0],'Retrato')+tx(384,72,518,48,name,26,{serif:true,color:'306468'})+tx(384,117,518,30,(age?age+' años  ·  ':'')+'Consulta',11,{color:'5d6f6d'});
       var blocks=[['Motivo de consulta','r-motivo'],['Lo que buscas','r-busca'],['Lo importante para ti','r-importante'],['Expectativas del tratamiento','r-expect']];var y=168;
       blocks.forEach(function(b){h+=tx(384,y,518,28,b[0],11,{color:'306468',bold:true})+tx(384,y+25,518,54,val(b[1]),10.5,{ls:1.2});y+=79;});return {cls:'',h:h};},
     frase:function(){return {cls:'grad',h:logo(58,38,134)+tx(115,154,730,230,val('r-frase'),26,{serif:true,color:'234c50',align:'center',mid:true,ls:1.25})};},
-    retrato:function(sl){return {cls:'dark',h:darkHead()+fr(298,53,365,418,sl.p[0],'Retrato sonriendo')+cap('Registro fotográfico')};},
-    perfiles:function(sl){return {cls:'dark',h:darkHead()+fr(58,72,408,398,sl.p[0],'Perfil derecho')+fr(494,72,408,398,sl.p[1],'Perfil izquierdo')+cap('Perfiles')};},
-    sonrisa:function(sl){return {cls:'dark',h:darkHead()+fr(58,72,509,398,sl.p[0],'Sonrisa frontal')+fr(586,72,317,192,sl.p[1],'Lateral derecha')+fr(586,278,317,192,sl.p[2],'Lateral izquierda')+cap('Sonrisa')};},
-    escaneo:function(sl){return {cls:'dark',h:darkHead()+fr(48,149,230,245,sl.p[0],'Lateral derecha')+fr(298,58,365,187,sl.p[1],'Vista superior')+fr(298,264,365,206,sl.p[2],'Vista frontal')+fr(682,149,230,245,sl.p[3],'Lateral izquierda')+cap('Escaneo intraoral')};},
-    mapas:function(sl){var h=darkHead(),labs=['Maxilar','Mandíbula','Contactos sup.','Contactos inf.'];for(var i=0;i<4;i++)h+=fr(48+i*216,82,202,346,sl.p[i],labs[i]);
+    retrato:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Retrato sonriendo'])+cap('Registro fotográfico')};},
+    perfiles:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Perfiles'])+cap('Perfiles')};},
+    sonrisa:function(sl){var p=(sl.p||[]).filter(Boolean);
+      /* con exactamente 3, la clásica: frontal grande y las dos laterales al lado */
+      var h=p.length===3?fr(58,72,509,398,p[0])+fr(586,72,317,192,p[1])+fr(586,278,317,192,p[2]):fotos(p,48,58,864,412,['Sonrisa']);
+      return {cls:'dark',h:darkHead()+h+cap('Sonrisa')};},
+    escaneo:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Escaneo intraoral'])+cap('Escaneo intraoral')};},
+    mapas:function(sl){var h=darkHead()+fotos(sl.p,48,58,864,370,['Mapas oclusales']);
       h+='<div class="bar" style="left:336px;top:442px;width:288px;height:21px"><i style="background:#d9342b"></i><i style="background:#e8842a"></i><i style="background:#f2c230"></i><i style="background:#8fd14f"></i><i style="background:#3fb8d8"></i><i style="background:#2d55d8"></i></div>'+tx(336,466,288,20,'0.0     0.2     0.4     0.6     0.8     1.0 mm',8,{color:'a8d0c8',align:'center'})+cap('Mapas de contacto oclusal');return {cls:'dark',h:h};},
-    rxpano:function(sl){return {cls:'dark',h:darkHead()+fr(58,91,845,374,sl.p[0],'Radiografía panorámica')+cap('Radiografías')};},
-    rxperi:function(sl){return {cls:'dark',h:darkHead()+fr(154,72,307,398,sl.p[0],'Periapical 1')+fr(499,72,307,398,sl.p[1],'Periapical 2')+cap('Radiografías periapicales')};},
+    rxpano:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografía panorámica'])+cap('Radiografías')};},
+    rxperi:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografías periapicales'])+cap('Radiografías periapicales')};},
     cierre:function(){return {cls:'grad',h:logo(230,163,499)+tx(77,437,806,30,'Naran Estudio Dental  ·  Propuesta preparada especialmente para ti',11,{color:'234c50',align:'center'})};},
     propA:function(){var d=window.propData||{order:[],groups:{},off:{}},h=logo(792,31,120)+tx(58,43,670,48,'Tu plan, paso a paso',24,{serif:true,color:'306468'})+tx(58,91,710,30,'Empezamos por la salud. La fase estética se decide contigo después del diseño.',11,{color:'5d6f6d'});
       var fases=d.order.slice(0,3);if(!fases.length)return {cls:'',h:h+tx(58,220,845,60,'Suelta el PDF de Dentalink para ver el plan por fases',13,{color:'8fa19e',align:'center'})};
