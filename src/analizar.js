@@ -1,5 +1,5 @@
 /**
- * POST /api/analizar  ·  Cloudflare Pages Function
+ * POST /api/analizar
  *
  * Recibe los audios y las fotos de una consulta, los manda a Gemini y
  * devuelve el JSON estructurado del caso.
@@ -8,7 +8,7 @@
  * nunca la ve. Antes de gastar cuota, se verifica que quien llama tenga
  * sesión iniciada en Supabase.
  *
- * Variables de entorno (Cloudflare → Settings → Environment variables):
+ * Variables de entorno (Cloudflare → Settings → Variables and Secrets):
  *   GEMINI_API_KEY   (secreto)   clave de Google AI Studio
  *   SUPABASE_URL     (texto)     https://xxxx.supabase.co
  *   SUPABASE_ANON_KEY(texto)     anon/publishable key
@@ -143,7 +143,7 @@ ${ejemplos && ejemplos.length ? `\nCORRECCIONES PREVIAS DE ESTA CLÍNICA (imita 
 }
 
 /* ── 5. Handler ──────────────────────────────────────────────────────── */
-export async function onRequestPost({ request, env }) {
+export async function analizar(request, env) {
   try {
     if (!env.GEMINI_API_KEY) return json({ error: 'Falta configurar GEMINI_API_KEY' }, 500);
 
@@ -202,5 +202,3 @@ export async function onRequestPost({ request, env }) {
     return json({ error: e.message || String(e) }, 500);
   }
 }
-
-export const onRequestGet = () => json({ error: 'Usa POST' }, 405);

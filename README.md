@@ -15,10 +15,11 @@ App interna de Naran Estudio Dental. Convierte la carpeta de una primera consult
 ## Cómo está armado
 
 ```
-public/          la app (una sola página, sin framework)
+public/          la app (una sola página, sin framework) — servida como assets
   index.html
   _headers       cabeceras de seguridad
-functions/api/   Cloudflare Pages Functions
+src/             el Worker
+  index.js       enruta /api/*; el resto lo sirven los assets
   analizar.js    audios + fotos → Gemini → JSON del caso (esconde la API key)
   salud.js       diagnóstico de configuración
 supabase/        esquema, datos iniciales y pruebas de RLS
@@ -28,7 +29,7 @@ supabase/        esquema, datos iniciales y pruebas de RLS
 DESPLIEGUE.md    paso a paso para publicar
 ```
 
-- **Página y API:** Cloudflare Pages + Pages Functions.
+- **Página y API:** un Worker de Cloudflare con assets estáticos.
 - **Sesión y datos:** Supabase Auth + Postgres con RLS (una clínica, roles admin / dentista / ejecutivo).
 - **IA:** Gemini Flash, plan gratuito. La key vive como secreto de Cloudflare.
 - **Audios y fotos del paciente no se guardan:** van del navegador a Gemini para el análisis y se descartan. Lo único que persiste es el texto del caso.

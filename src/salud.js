@@ -1,5 +1,5 @@
 /** GET /api/salud — dice qué está configurado, sin revelar ningún valor. */
-export async function onRequestGet({ env }) {
+export async function salud(env) {
   const estado = {
     gemini_key: !!env.GEMINI_API_KEY,
     supabase_url: !!env.SUPABASE_URL,

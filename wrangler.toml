@@ -1,14 +1,21 @@
 name = "naran-dsd"
-pages_build_output_dir = "public"
+main = "src/index.js"
 compatibility_date = "2026-09-25"
-compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# La app es HTML estático servido desde ./public. Todo lo que no calce con un
+# archivo estático llega al Worker (src/index.js), que atiende /api/*.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "404-page"
 
 # Los secretos NO van aquí. Se cargan con:
-#   npx wrangler pages secret put GEMINI_API_KEY
-# o desde el panel: Workers & Pages → naran-dsd → Settings → Variables.
+#   npx wrangler secret put GEMINI_API_KEY
+# o en el panel: Workers & Pages → naran-dsd → Settings → Variables and Secrets.
 #
-# Variables no secretas (se pueden dejar en el panel o descomentar aquí):
+# Variables no secretas: déjalas en el panel, o descoméntalas acá.
 # [vars]
 # SUPABASE_URL = "https://xxxxxxxx.supabase.co"
 # SUPABASE_ANON_KEY = "eyJ..."
-# GEMINI_MODEL = ""          # vacío = la función elige un Flash disponible
+# GEMINI_MODEL = ""          # vacío = el Worker elige un Flash disponible

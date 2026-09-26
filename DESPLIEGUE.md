@@ -1,13 +1,13 @@
 # Despliegue — Naran DSD
 
-Arquitectura elegida: **Cloudflare Pages** (la app y la API) + **Supabase** (sesión, base de datos con RLS). Ambos en plan gratuito.
+Arquitectura elegida: **Cloudflare Workers** (la app y la API) + **Supabase** (sesión, base de datos con RLS). Ambos en plan gratuito.
 
 > **Por qué las dos cosas:** RLS (*Row Level Security*) es una función de Postgres, y Cloudflare no tiene Postgres — su base de datos (D1) es SQLite y **no soporta RLS**. Si quieres RLS de verdad, los datos van en Supabase. Cloudflare sigue siendo lo que sirve la página, esconde la API key de Gemini y pone el dominio.
 
 | Capa | Dónde | Plan |
 |---|---|---|
-| Página (HTML/CSS/JS) | Cloudflare Pages | gratis |
-| `/api/analizar` (proxy a Gemini, esconde la key) | Cloudflare Pages Functions | gratis (100.000 req/día) |
+| Página (HTML/CSS/JS) | Cloudflare Workers + assets estáticos | gratis |
+| `/api/analizar` (proxy a Gemini, esconde la key) | Cloudflare Workers | gratis (100.000 req/día) |
 | Sesión y usuarios | Supabase Auth | gratis |
 | Casos, correcciones, parámetros | Supabase Postgres **con RLS** | gratis (500 MB) |
 | Archivos generados (opcional) | Supabase Storage, bucket privado | gratis (1 GB) |
@@ -58,45 +58,54 @@ En Supabase → **SQL Editor**, corre en orden:
 
 ## 3. Publicar en Cloudflare
 
-**Antes:** en este equipo **no está instalado Node.js**, y `wrangler` (la herramienta de Cloudflare) lo necesita. Una sola vez:
+El proyecto es un **Worker con assets estáticos** (`[assets] directory = "./public"` en `wrangler.toml`): Cloudflare sirve la app desde `public/` y todo lo que no sea un archivo estático llega a `src/index.js`, que atiende `/api/*`. Por eso **no existe el campo "Build output directory"**: ese es de Pages, no de Workers.
+
+### Opción A · conectado a GitHub (la que estamos usando)
+
+En Workers & Pages → tu proyecto → Settings → Build:
+
+| Campo | Valor |
+|---|---|
+| Build command | *(vacío)* |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | `/` |
+| Non-production branch deploy command | *(vacío o el mismo)* |
+
+Cada `git push` a `main` dispara un deploy. La URL queda como `https://naran-dsd.<tu-subdominio>.workers.dev`.
+
+> **Si el build falla en "Cloning repository"**, el repositorio está vacío o Cloudflare no tiene acceso: haz el primer `git push` y dale *Retry build*.
+
+### Opción B · desde tu equipo
+
+Requiere Node.js, que en este equipo **no está instalado**. Una sola vez:
 
 ```bash
 winget install OpenJS.NodeJS.LTS
 ```
 
-Cierra y vuelve a abrir la terminal para que tome el PATH. Después, desde esta carpeta (`Pagina naran/app`):
+Cierra y reabre la terminal, y desde `Pagina naran/app`:
 
 ```bash
-npx wrangler pages deploy public --project-name naran-dsd
+npx wrangler deploy
 ```
 
-La primera vez pide iniciar sesión en Cloudflare (abre el navegador). Al terminar entrega una URL `https://naran-dsd.pages.dev`.
-
-> **Alternativa sin instalar nada:** subir la carpeta `app` a un repositorio de GitHub (git sí está instalado) y en Cloudflare elegir *Workers & Pages → Create → Pages → Connect to Git*. Ahí se configura `public` como carpeta de salida y Cloudflare compila solo en cada push. Es más cómodo a la larga porque cada cambio se publica con un `git push`.
-
-Después, los secretos y variables:
+### Variables y secretos
 
 ```bash
-npx wrangler pages secret put GEMINI_API_KEY --project-name naran-dsd
+npx wrangler secret put GEMINI_API_KEY
 ```
 
-y en el panel (Workers & Pages → naran-dsd → Settings → Variables and Secrets) agrega como texto normal:
+y en el panel (Settings → Variables and Secrets) agrega como texto normal:
 
 - `SUPABASE_URL` → `https://xxxxxxxx.supabase.co`
 - `SUPABASE_ANON_KEY` → `eyJ…`
-- `GEMINI_MODEL` → déjala vacía; la función elige sola un modelo Flash disponible.
+- `GEMINI_MODEL` → déjala vacía; el Worker elige solo un modelo Flash disponible.
 
-Para probar en tu equipo antes de publicar:
-
-```bash
-npx wrangler pages dev public
-```
+Para probar localmente antes de publicar: `npx wrangler dev`.
 
 ### Comprobar que quedó bien
 
-Abre `https://naran-dsd.pages.dev/api/salud`. Devuelve qué está configurado (sin mostrar ningún valor) y la lista de modelos Gemini que acepta tu key. Si `gemini_key` sale en `false`, el secreto no quedó cargado.
-
----
+Abre `https://naran-dsd.<tu-subdominio>.workers.dev/api/salud`. Devuelve qué está configurado (sin mostrar ningún valor) y la lista de modelos Gemini que acepta tu key. Si `gemini_key` sale en `false`, el secreto no quedó cargado.
 
 ## 4. Estado de esta entrega
 
