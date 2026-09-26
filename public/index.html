@@ -359,6 +359,24 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .rv2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media (max-width:900px){.subseg{grid-template-columns:repeat(2,1fr)}.rv2{grid-template-columns:1fr}}
 
+.aviso{position:fixed;left:50%;bottom:26px;transform:translate(-50%,140%);z-index:90;max-width:min(520px,92vw);
+  display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:14px 18px;border-radius:18px;
+  background:var(--bg);box-shadow:var(--up);transition:transform .42s var(--spring),opacity .25s;opacity:0}
+.aviso.on{transform:translate(-50%,0);opacity:1}
+.aviso .ic{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;box-shadow:var(--in-s);color:var(--brand)}
+.aviso.err .ic{color:var(--warn)}
+.aviso b{display:block;font-weight:600}
+.aviso small{color:var(--muted)}
+.confirmar{position:fixed;inset:0;z-index:95;display:none;place-items:center;padding:24px;background:rgba(12,21,20,.55);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.confirmar.on{display:grid}
+.confirmar .caja{width:min(400px,100%);display:grid;gap:8px;padding:26px}
+.confirmar h2{font-size:19px}
+.confirmar p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.5}
+.confirmar .acciones{display:flex;gap:10px;justify-content:flex-end;margin-top:10px}
+.barra-desc{margin-top:16px;display:none;gap:10px}
+.barra-desc.on{display:grid}
+
 /* ── entrega ── */
 .files{display:grid;gap:12px}
 .file{display:grid;grid-template-columns:28px 150px 1fr auto;gap:16px;align-items:center;padding:12px 16px 12px 14px;border-radius:18px;box-shadow:var(--flat);cursor:pointer;transition:box-shadow .2s,opacity .2s}
@@ -834,6 +852,11 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         </div>
       </section>
     </div>
+    <div class="prog card barra-desc" id="desc-prog">
+      <div class="prog-h"><b id="desc-t">Generando archivos…</b><span class="pill" id="desc-p">0 %</span></div>
+      <div class="prog-bar"><i id="desc-i"></i></div>
+      <small id="desc-s"></small>
+    </div>
   </div>
 </main>
 
@@ -870,6 +893,22 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     <div class="nav" style="justify-content:center;font-size:12px;opacity:.65">Desliza, usa las flechas o ← →  ·  Esc para cerrar</div>
   </div>
 </div>
+<div class="aviso card" id="aviso" role="status" aria-live="polite">
+  <span class="ic" id="aviso-ic"></span>
+  <span><b id="aviso-t"></b><small id="aviso-s"></small></span>
+</div>
+
+<div class="confirmar" id="confirmar" role="dialog" aria-modal="true" aria-labelledby="conf-t">
+  <div class="caja card">
+    <h2 id="conf-t">¿Confirmas?</h2>
+    <p id="conf-s"></p>
+    <div class="acciones">
+      <button class="btn ghost" type="button" id="conf-no">Cancelar</button>
+      <button class="btn" type="button" id="conf-si">Sí, continuar</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet" role="dialog" aria-label="Transcripción" aria-hidden="true">
   <div class="grab" id="grab"><i></i></div>
@@ -887,6 +926,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"></script>
 <script>
 (function(){
   var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -988,9 +1030,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(del){
       e.stopPropagation();
       var c=cases.filter(function(x){return String(x.id)===del.dataset.del;})[0];
-      if(!window.confirm('¿Borrar el caso de '+((c&&c.nombre)||'este paciente')+'?\n\nSe elimina del historial y no se puede deshacer. Los archivos que ya descargaste no se tocan.'))return;
-      try{ await Store.borrar(del.dataset.del); await cargarCasos(); }
-      catch(err){ window.alert('No se pudo borrar: '+err.message); }
+      if(!await confirmar('Borrar el caso de '+((c&&c.nombre)||'este paciente'),'Se elimina del historial y no se puede deshacer. Los archivos que ya descargaste no se tocan.','Borrar'))return;
+      try{ await Store.borrar(del.dataset.del); await cargarCasos(); aviso('Caso borrado',''); }
+      catch(err){ aviso('No se pudo borrar',err.message,true); }
       return;
     }
     var fila=e.target.closest('.case'); if(!fila)return;
@@ -1643,6 +1685,221 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function drawDv(el){var r=DOC[el.dataset.kind||'tips']();el.innerHTML='<div class="dv-in">'+r[0]+'</div>';el.dataset.title=r[1];el.querySelector('.dv-in').style.transform='scale('+(el.clientWidth/794)+')';if(!el.dataset.ro){roD.observe(el);el.dataset.ro=1;}}
   ['d-perfil','d-nombre','d-just','d-no','d-si','d-amp','d-cierre','d-ruta','f-nombre','f-edad','f-fecha','pc-f1','pc-cond','pc-ctx','pc-actual','pc-plan','pc-obj','pc-alt-cond','pc-alt','pc-alt-mejora','pc-alt-why','pf-p1','pf-p2','pf-p3','pf-p2-alts','pf-p3-alts','pf-explicar','pf-p3-when'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',function(){document.querySelectorAll('.dv').forEach(drawDv);});});
 
+
+  /* ═══ generación de los entregables ═══════════════════════════════════
+   * Las láminas ya están dibujadas por el mismo renderizador de la vista
+   * previa, así que el archivo sale idéntico a lo que se ve en pantalla.
+   * PDF: se rasteriza cada lámina.  PPTX: se recorre el DOM y cada caja se
+   * convierte en un objeto nativo de PowerPoint (texto, imagen o forma).
+   */
+  var LOGO_URL=null, LOGO_TEAL=null, FONDO_GRAD=null;
+
+  function logoBlanco(){
+    if(LOGO_URL)return LOGO_URL;
+    var m=/url\(["']?(data:[^"')]+)/.exec(getComputedStyle(document.querySelector('.bar .logo')).maskImage||'');
+    LOGO_URL=m?m[1]:null; return LOGO_URL;
+  }
+  function pintarLogo(color){
+    return new Promise(function(res){
+      var u=logoBlanco(); if(!u)return res(null);
+      var img=new Image();
+      img.onload=function(){
+        var c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+        var x=c.getContext('2d'); x.drawImage(img,0,0);
+        x.globalCompositeOperation='source-in'; x.fillStyle=color; x.fillRect(0,0,c.width,c.height);
+        res(c.toDataURL('image/png'));
+      };
+      img.onerror=function(){res(null);};
+      img.src=u;
+    });
+  }
+  function gradiente(){
+    if(FONDO_GRAD)return FONDO_GRAD;
+    var c=document.createElement('canvas'); c.width=1920; c.height=1080;
+    var x=c.getContext('2d'), g=x.createLinearGradient(0,0,1920,1080);
+    g.addColorStop(0,'#d6ebe5'); g.addColorStop(.55,'#a8d0c8'); g.addColorStop(1,'#88d0b8');
+    x.fillStyle=g; x.fillRect(0,0,1920,1080);
+    FONDO_GRAD=c.toDataURL('image/jpeg',0.92); return FONDO_GRAD;
+  }
+
+  /* Monta una lámina a tamaño real, fuera de la vista, lista para rasterizar. */
+  function montar(html,cls,ancho,alto,claseBase){
+    var cont=document.createElement('div');
+    cont.style.cssText='position:fixed;left:-20000px;top:0;width:'+ancho+'px;height:'+alto+'px;z-index:-1';
+    var d=document.createElement('div');
+    d.className=claseBase+' '+(cls||'');
+    d.style.cssText='position:relative;width:'+ancho+'px;height:'+alto+'px;transform:none';
+    d.innerHTML=html;
+    cont.appendChild(d); document.body.appendChild(cont);
+    return {cont:cont,nodo:d};
+  }
+  /* html2canvas no entiende máscaras CSS: el logo se cambia por una imagen. */
+  async function logosAImagen(nodo,oscuro){
+    var url=await pintarLogo(oscuro?'#f6f9f8':'#306468');
+    if(!url)return;
+    [].slice.call(nodo.querySelectorAll('.lg')).forEach(function(el){
+      var i=document.createElement('img');
+      i.src=url; i.alt='';
+      i.style.cssText='position:absolute;left:'+el.offsetLeft+'px;top:'+el.offsetTop+'px;width:'+el.offsetWidth+'px;height:auto';
+      el.parentNode.replaceChild(i,el);
+    });
+  }
+  async function rasterizar(html,cls,ancho,alto,claseBase,escala){
+    var m=montar(html,cls,ancho,alto,claseBase);
+    await logosAImagen(m.nodo,(cls||'').indexOf('dark')>=0);
+    await new Promise(function(r){setTimeout(r,60);});
+    var canvas=await html2canvas(m.nodo,{scale:escala||2,backgroundColor:null,logging:false,useCORS:true,width:ancho,height:alto});
+    m.cont.remove();
+    return canvas.toDataURL('image/jpeg',0.92);
+  }
+
+  function bajar(blob,nombre){
+    var u=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=u; a.download=nombre; document.body.appendChild(a); a.click();
+    setTimeout(function(){a.remove();URL.revokeObjectURL(u);},1500);
+  }
+
+  /* ── PDF ── */
+  async function pdfDeLaminas(laminas,nombre,avance){
+    var jsPDF=window.jspdf.jsPDF, doc=null;
+    for(var i=0;i<laminas.length;i++){
+      var r=SLIDE[laminas[i].kind](laminas[i].sl);
+      var img=await rasterizar(r.h,r.cls,960,540,'sv-in',2);
+      if(!doc)doc=new jsPDF({orientation:'landscape',unit:'in',format:[10,5.625],compress:true});
+      else doc.addPage([10,5.625],'landscape');
+      doc.addImage(img,'JPEG',0,0,10,5.625);
+      if(avance)avance((i+1)/laminas.length);
+    }
+    if(doc)bajar(doc.output('blob'),nombre);
+  }
+  async function pdfDeDocumento(kind,nombre){
+    var r=DOC[kind]();
+    var img=await rasterizar(r[0],'',794,1123,'dv-in',2);
+    var doc=new window.jspdf.jsPDF({orientation:'portrait',unit:'pt',format:'a4',compress:true});
+    doc.addImage(img,'JPEG',0,0,595.28,841.89);
+    bajar(doc.output('blob'),nombre);
+  }
+
+  /* ── PPTX: cada caja del DOM se convierte en un objeto nativo ── */
+  var PT=function(px){return px*0.75;}, IN=function(px){return px/96;};
+  function hex(c){
+    var m=/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c||'');
+    if(!m)return '16201F';
+    return [1,2,3].map(function(i){return (+m[i]).toString(16).padStart(2,'0');}).join('').toUpperCase();
+  }
+  async function pptxDeLaminas(laminas,nombre,avance){
+    var pptx=new PptxGenJS();
+    pptx.defineLayout({name:'NARAN',width:10,height:5.625});
+    pptx.layout='NARAN';
+    var logoClaro=await pintarLogo('#306468'), logoOscuro=await pintarLogo('#f6f9f8');
+
+    for(var i=0;i<laminas.length;i++){
+      var r=SLIDE[laminas[i].kind](laminas[i].sl);
+      var oscuro=(r.cls||'').indexOf('dark')>=0, grad=(r.cls||'').indexOf('grad')>=0;
+      var m=montar(r.h,r.cls,960,540,'sv-in');
+      var slide=pptx.addSlide();
+      slide.background=grad?{data:gradiente()}:{color:oscuro?'0E1A1A':'F6F9F8'};
+
+      [].slice.call(m.nodo.children).forEach(function(el){
+        var x=IN(el.offsetLeft), y=IN(el.offsetTop), w=IN(el.offsetWidth), h=IN(el.offsetHeight);
+        var cs=getComputedStyle(el);
+
+        if(el.classList.contains('lg')){
+          var d=oscuro?logoOscuro:logoClaro;
+          if(d)slide.addImage({data:d,x:x,y:y,w:w,h:h});
+          return;
+        }
+        if(el.classList.contains('fr')){
+          var im=el.querySelector('img');
+          if(im&&im.src){ slide.addImage({path:im.src,x:x,y:y,w:w,h:h,sizing:{type:'cover',w:w,h:h}}); }
+          else { slide.addShape(pptx.ShapeType.roundRect,{x:x,y:y,w:w,h:h,fill:{color:oscuro?'1F3130':'CFE3DD'},line:{type:'none'},rectRadius:0.08}); }
+          return;
+        }
+        if(el.classList.contains('cd')){
+          slide.addShape(pptx.ShapeType.roundRect,{x:x,y:y,w:w,h:h,fill:{color:hex(cs.backgroundColor)},line:{type:'none'},rectRadius:0.1});
+          return;
+        }
+        if(el.classList.contains('bar')){
+          [].slice.call(el.children).forEach(function(b){
+            slide.addShape(pptx.ShapeType.rect,{x:IN(el.offsetLeft+b.offsetLeft),y:y,w:IN(b.offsetWidth),h:h,
+              fill:{color:hex(getComputedStyle(b).backgroundColor)},line:{type:'none'}});
+          });
+          return;
+        }
+        if(el.classList.contains('cap')){
+          slide.addShape(pptx.ShapeType.rect,{x:0,y:y,w:10,h:h,fill:{color:oscuro?'0A1514':'EDF3F1'},line:{type:'none'}});
+          slide.addText(el.textContent.trim(),{x:0.5,y:y,w:9,h:h,fontSize:11,bold:true,color:oscuro?'A8D0C8':'306468',
+            fontFace:'Calibri',valign:'middle',isTextBox:true,margin:0});
+          return;
+        }
+        var txt=el.textContent.trim();
+        if(!txt)return;
+        var serif=/serif/i.test(cs.fontFamily)||el.classList.contains('serif');
+        slide.addText(txt,{
+          x:x, y:y, w:w, h:Math.max(h,0.18),
+          fontSize:Math.round(PT(parseFloat(cs.fontSize))*10)/10,
+          color:hex(cs.color),
+          fontFace:serif?'Georgia':'Calibri',
+          bold:(parseInt(cs.fontWeight,10)||400)>=600,
+          italic:cs.fontStyle==='italic',
+          align:cs.textAlign==='center'?'center':cs.textAlign==='right'?'right':'left',
+          valign:el.classList.contains('big')?'middle':'top',
+          lineSpacingMultiple:1.15, isTextBox:true, margin:0, shrinkText:true
+        });
+      });
+      m.cont.remove();
+      if(avance)avance((i+1)/laminas.length);
+    }
+    var blob=await pptx.write({outputType:'blob'});
+    bajar(blob,nombre);
+  }
+
+  /* ── qué láminas van ── */
+  function laminasDSD(){
+    return slides.map(function(sl,i){return {sl:sl,i:i};})
+      .filter(function(a){return !a.sl.hidden&&(a.sl.fixed||(a.sl.p&&a.sl.p.length));})
+      .map(function(a){return {kind:KIND_BY_TITLE[a.sl.t],sl:a.sl};});
+  }
+  function laminasPropuesta(){ return [{kind:'propA',sl:null},{kind:'propB',sl:null}]; }
+
+  /* ── el botón ── */
+  function avanceDesc(pct,titulo,detalle){
+    var b=document.getElementById('desc-prog'); b.classList.add('on');
+    document.getElementById('desc-i').style.width=Math.round(pct*100)+'%';
+    document.getElementById('desc-p').textContent=Math.round(pct*100)+' %';
+    document.getElementById('desc-t').textContent=titulo;
+    document.getElementById('desc-s').textContent=detalle||'';
+  }
+  async function descargarSeleccionados(){
+    var elegidos=[].slice.call(document.querySelectorAll('#s5 .file input:checked'))
+      .map(function(c){return {clave:c.closest('.file').dataset.file,nombre:c.closest('.file').querySelector('.finfo b').textContent};});
+    if(!elegidos.length)return;
+    var btn=document.getElementById('dl-all'); btn.disabled=true;
+    var hechos=0, fallos=[];
+    for(var k=0;k<elegidos.length;k++){
+      var e=elegidos[k], base=hechos/elegidos.length;
+      avanceDesc(base,'Generando '+e.nombre,'Archivo '+(k+1)+' de '+elegidos.length);
+      try{
+        var paso=function(f){avanceDesc(base+f/elegidos.length,'Generando '+e.nombre,'Archivo '+(k+1)+' de '+elegidos.length);};
+        if(e.clave==='dsd-pdf')            await pdfDeLaminas(laminasDSD(),e.nombre,paso);
+        else if(e.clave==='dsd-pptx')      await pptxDeLaminas(laminasDSD(),e.nombre,paso);
+        else if(e.clave==='prop-pdf')      await pdfDeLaminas(laminasPropuesta(),e.nombre,paso);
+        else if(e.clave==='prop-pptx')     await pptxDeLaminas(laminasPropuesta(),e.nombre,paso);
+        else if(e.clave==='tips-pdf')      await pdfDeDocumento('tips',e.nombre);
+        else if(e.clave==='plan-pdf')      await pdfDeDocumento('plan',e.nombre);
+        else if(e.clave==='fases-pdf')     await pdfDeDocumento('fases',e.nombre);
+        else if(e.clave==='caso-json')     bajar(new Blob([JSON.stringify({paciente:{nombre:val('f-nombre'),edad:val('f-edad'),fecha:val('f-fecha')},datos:datosActuales()},null,2)],{type:'application/json'}),e.nombre);
+      }catch(err){ console.error('[descarga]',e.clave,err); fallos.push(e.nombre); }
+      hechos++;
+    }
+    avanceDesc(1,'Listo','');
+    setTimeout(function(){document.getElementById('desc-prog').classList.remove('on');},1200);
+    btn.disabled=false;
+    guardarCaso('entregado').catch(function(){});
+    if(fallos.length)aviso('Algunos archivos no se generaron',fallos.join(', '),true);
+    else aviso((hechos===1?'Archivo descargado':hechos+' archivos descargados'),'Revisa la carpeta de descargas de tu navegador.');
+  }
+
   /* ── entrega: names, availability, checklist ── */
   function slug(){return ((val('f-nombre')||'').trim()||'Paciente').replace(/\s+/g,'_');}
   window.refreshFiles=function(){
@@ -1665,12 +1922,10 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   document.getElementById('btn-guardar').addEventListener('click',async function(){
     var b=this,txt=b.textContent; b.disabled=true; b.textContent='Guardando…';
     try{ await guardarCaso('revisado'); b.textContent='Guardado ✓'; }
-    catch(e){ b.textContent='No se pudo guardar'; window.alert('No se pudo guardar: '+e.message); }
+    catch(e){ b.textContent='No se pudo guardar'; aviso('No se pudo guardar',e.message,true); }
     setTimeout(function(){b.textContent=txt;b.disabled=false;},2000);
   });
-  document.getElementById('dl-all').addEventListener('click',function(){var names=[].slice.call(document.querySelectorAll('#s5 .file input:checked')).map(function(c){return c.closest('.file').querySelector('.finfo b').textContent;});
-    guardarCaso('entregado').catch(function(){});
-    alert('En la app real se generan y descargan:\n\n'+names.join('\n'));});
+  document.getElementById('dl-all').addEventListener('click',descargarSeleccionados);
 
   /* ── sub-pestañas del paso Textos + textareas que crecen con el contenido ── */
   function grow(t){t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px';}
@@ -1733,6 +1988,32 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function up(e){if(!sd||e.pointerId!==sd.id)return;var h=sd.hist,a=h[0],b=h[h.length-1],dt=(b[1]-a[1])||16,vel=(b[0]-a[0])/dt*1000;sd=null;grab.style.cursor='grab';to(y+project(vel)>H/2?H:0,vel);}
   sheet.addEventListener('pointerup',up);sheet.addEventListener('pointercancel',up);
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&open)to(H,0);});
+  /* ── avisos y confirmación propios, en vez de los diálogos del navegador ── */
+  var OK_SVG='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+  var ERR_SVG='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>';
+  var avisoT=null;
+  function aviso(titulo,detalle,malo){
+    var a=document.getElementById('aviso');
+    document.getElementById('aviso-ic').innerHTML=malo?ERR_SVG:OK_SVG;
+    document.getElementById('aviso-t').textContent=titulo;
+    document.getElementById('aviso-s').textContent=detalle||'';
+    a.classList.toggle('err',!!malo); a.classList.add('on');
+    clearTimeout(avisoT); avisoT=setTimeout(function(){a.classList.remove('on');},malo?7000:4000);
+  }
+  function confirmar(titulo,texto,textoSi){
+    return new Promise(function(res){
+      var c=document.getElementById('confirmar');
+      document.getElementById('conf-t').textContent=titulo;
+      document.getElementById('conf-s').textContent=texto;
+      document.getElementById('conf-si').textContent=textoSi||'Sí, continuar';
+      c.classList.add('on');
+      function cerrar(v){c.classList.remove('on');document.getElementById('conf-si').onclick=null;document.getElementById('conf-no').onclick=null;c.onclick=null;res(v);}
+      document.getElementById('conf-si').onclick=function(){cerrar(true);};
+      document.getElementById('conf-no').onclick=function(){cerrar(false);};
+      c.onclick=function(e){if(e.target===c)cerrar(false);};
+    });
+  }
+
   /* ── sesión: Supabase si está configurado; si no, modo local ─────── */
   var gate=document.getElementById('gate'), gateErr=document.getElementById('gate-err');
   function errGate(t){gateErr.hidden=!t;gateErr.textContent=t||'';}
@@ -1859,7 +2140,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
   document.getElementById('btn-salir').addEventListener('click',async function(){
     if(!window.SB)return;
-    if(!window.confirm('¿Cerrar sesión?'))return;
+    if(!await confirmar('Cerrar sesión','Volverás a la pantalla de acceso. El caso que estés editando no se pierde si ya lo guardaste.','Cerrar sesión'))return;
     await window.SB.auth.signOut();
     location.reload();
   });
