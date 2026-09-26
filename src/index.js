@@ -17,6 +17,17 @@ export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
 
+    // Datos públicos que el navegador necesita para iniciar sesión.
+    // La anon key es pública por diseño: sin sesión no abre ninguna fila (RLS).
+    if (pathname === '/api/config') {
+      return json({
+        supabase: env.SUPABASE_URL && env.SUPABASE_ANON_KEY
+          ? { url: env.SUPABASE_URL, anon: env.SUPABASE_ANON_KEY }
+          : null,
+        clave: !env.SUPABASE_URL && !!env.CLAVE_PRUEBA,
+      });
+    }
+
     if (pathname === '/api/salud') {
       return request.method === 'GET' ? salud(env) : json({ error: 'Usa GET' }, 405);
     }
