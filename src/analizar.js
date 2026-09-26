@@ -55,19 +55,63 @@ async function autorizado(request, env) {
   return { ok: false, motivo: 'Falta configurar el acceso: carga el secreto CLAVE_PRUEBA (o conecta Supabase) en Cloudflare' };
 }
 
-/* ── 2. Elegir modelo ────────────────────────────────────────────────── */
-async function modelo(env) {
-  if (env.GEMINI_MODEL) return env.GEMINI_MODEL;
+/* ── 2. Elegir modelos, por orden de preferencia ──────────────────────
+ * Los alias "-latest" y los "preview" apuntan a lo más nuevo y son los que
+ * más se saturan (503). Preferimos versiones estables y guardamos una lista
+ * de repuesto para cambiar de modelo si el primero está caído.
+ */
+async function candidatos(env) {
+  if (env.GEMINI_MODEL) return [env.GEMINI_MODEL];
   const r = await fetch(`${API}/v1beta/models?key=${env.GEMINI_API_KEY}&pageSize=200`);
   if (!r.ok) throw new Error(`No se pudo listar modelos (${r.status})`);
   const { models = [] } = await r.json();
-  const usable = models.filter(
-    (m) => (m.supportedGenerationMethods || []).includes('generateContent') && /flash/i.test(m.name),
-  );
-  // preferimos un alias estable ("-latest") y, si no hay, el primero que sirva
-  const pick = usable.find((m) => /latest/.test(m.name)) || usable[0];
-  if (!pick) throw new Error('Ningún modelo Flash disponible para esta clave');
-  return pick.name.replace(/^models\//, '');
+
+  const nombres = models
+    .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map((m) => m.name.replace(/^models\//, ''))
+    // fuera lo que no sirve para esto: imagen, voz, música, investigación
+    .filter((n) => /flash/i.test(n) && !/(image|tts|audio|lyria|nano|embedding|deep-research)/i.test(n));
+
+  const version = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || '0');
+  const puntaje = (n) =>
+    (/(preview|exp)/i.test(n) ? 0 : 40) +   // estable antes que preview
+    (/latest/i.test(n) ? 5 : 15) +          // versión fija antes que alias
+    (/lite/i.test(n) ? 0 : 10) +            // lite solo como repuesto
+    version(n);
+
+  const orden = nombres.sort((a, b) => puntaje(b) - puntaje(a));
+  if (!orden.length) throw new Error('Ningún modelo Flash disponible para esta clave');
+  return orden.slice(0, 4);
+}
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Llama a un modelo reintentando si está saturado; si no hay caso, pasa al siguiente. */
+async function generar(env, modelos, cuerpo) {
+  let ultimo = { status: 0, msg: 'sin intentos' };
+  for (const model of modelos) {
+    for (let intento = 0; intento < 2; intento++) {
+      const r = await fetch(`${API}/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(cuerpo),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) return { data, model };
+
+      const msg = (data.error && data.error.message) || `Gemini respondió ${r.status}`;
+      ultimo = { status: r.status, msg };
+      console.log('[analizar]', model, r.status, msg.slice(0, 160));
+
+      if (r.status === 503 || /overload|high demand/i.test(msg)) {
+        if (intento === 0) { await esperar(2500); continue; }  // un respiro y reintenta
+        break;                                                  // sigue saturado: cambia de modelo
+      }
+      if (r.status === 429) return { error: ultimo };            // cuota: cambiar de modelo no ayuda
+      break;                                                     // otro error: no insistir
+    }
+  }
+  return { error: ultimo };
 }
 
 /* ── 3. Subir un archivo grande por la Files API ─────────────────────── */
@@ -186,11 +230,8 @@ export async function analizar(request, env) {
     for (const a of audios) partes.push(a.size > MAX_INLINE ? await subir(env, a) : await inline(a));
     for (const f of fotos) partes.push(await inline(f));
 
-    const model = await modelo(env);
-    const r = await fetch(`${API}/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const modelos = await candidatos(env);
+    const cuerpo = {
         contents: [{ role: 'user', parts: partes }],
         generationConfig: {
           temperature: 0.3,
@@ -203,16 +244,20 @@ export async function analizar(request, env) {
           'HARM_CATEGORY_SEXUALLY_EXPLICIT',
           'HARM_CATEGORY_DANGEROUS_CONTENT',
         ].map((category) => ({ category, threshold: 'BLOCK_ONLY_HIGH' })),
-      }),
-    });
+    };
 
-    const data = await r.json();
-    if (!r.ok) {
-      const msg = (data.error && data.error.message) || `Gemini respondió ${r.status}`;
-      const cuota = r.status === 429;
-      console.log('[analizar] error de Gemini', r.status, msg);
-      return json({ error: cuota ? 'Se acabó la cuota diaria de Gemini. Vuelve a intentar mañana.' : msg, cuota }, r.status);
+    const res = await generar(env, modelos, cuerpo);
+    if (res.error) {
+      const { status, msg } = res.error;
+      const texto =
+        status === 429
+          ? 'Se acabó la cuota diaria de Gemini. Vuelve a intentar mañana.'
+          : status === 503 || /overload|high demand/i.test(msg)
+            ? `Los modelos de Gemini están saturados ahora mismo (probé ${modelos.length}). Espera unos minutos y vuelve a intentar; el audio y las fotos siguen cargados.`
+            : msg;
+      return json({ error: texto, cuota: status === 429 }, status || 502);
     }
+    const { data, model } = res;
 
     const cand = (data.candidates || [])[0] || {};
     // Los modelos con razonamiento devuelven varias partes (incluidos "pensamientos"):
