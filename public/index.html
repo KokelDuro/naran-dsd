@@ -1164,6 +1164,32 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     });
   }
 
+  /* Cada foto se pasa por un canvas y queda como JPEG de máximo 1600 px.
+     Así el navegador ya la decodificó una vez: si no puede (HEIC de iPhone,
+     por ejemplo) lo sabemos aquí y no al generar los archivos. De paso pesan
+     menos, y tanto el PDF como el PPTX las reciben en un formato que
+     PowerPoint entiende siempre. */
+  function normalizar(file){
+    return new Promise(function(res){
+      var url=URL.createObjectURL(file), img=new Image();
+      var fin=function(v){ try{URL.revokeObjectURL(url);}catch(e){} res(v); };
+      img.onload=function(){
+        var w=img.naturalWidth, h=img.naturalHeight;
+        if(!w||!h)return fin(null);
+        var L=1600, e=Math.min(1,L/Math.max(w,h));
+        var c=document.createElement('canvas'); c.width=Math.round(w*e); c.height=Math.round(h*e);
+        try{ c.getContext('2d').drawImage(img,0,0,c.width,c.height); }catch(err){ return fin(null); }
+        c.toBlob(function(b){
+          if(!b)return fin(null);
+          fin({blob:b,url:URL.createObjectURL(b),ar:w/h});
+        },'image/jpeg',0.85);
+      };
+      img.onerror=function(){ fin(null); };
+      setTimeout(function(){ if(img.complete===false) fin(null); },12000);
+      img.src=url;
+    });
+  }
+
   /* Heurística local, sin IA: escala de grises → radiografía; muy ancha → panorámica. */
   function clasificaLocal(url){
     return new Promise(function(res){
@@ -1227,10 +1253,15 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
     slides.forEach(function(sl){if(sl.p)sl.p=[];});
     tray.length=0;
+    var ilegibles=[];
     for(var j=0;j<fot.length;j++){
-      var id='f'+j,url=URL.createObjectURL(fot[j]);
-      var cl=await clasificaLocal(url);
-      photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:url,file:fot[j],rv:!cl.k,ar:cl.ar||1.33};
+      var nz=await normalizar(fot[j]);
+      if(!nz){ ilegibles.push(fot[j].name); continue; }
+      var id='f'+j;
+      var cl=await clasificaLocal(nz.url);
+      photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:nz.url,
+                  file:new File([nz.blob],fot[j].name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}),
+                  rv:!cl.k,ar:nz.ar||cl.ar||1.33};
       if(cl.cat==='rx_panoramica')slides[8].p.push(id);
       else if(cl.cat==='rx_periapical')slides[9].p.push(id);
       else tray.push(id);
@@ -1240,8 +1271,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     pintaInventario(ign);
     for(var k=0;k<audios.length;k++){audios[k].dur=await duracion(audios[k].f);pintaInventario(ign);}
 
-    var conRx=fot.length-tray.length;
-    document.getElementById('drop-s').innerHTML=aud.length+' audio'+(aud.length===1?'':'s')+' · '+fot.length+' foto'+(fot.length===1?'':'s')+
+    if(ilegibles.length){
+      aviso(ilegibles.length+(ilegibles.length===1?' foto no se pudo leer':' fotos no se pudieron leer'),
+        'El navegador no reconoce ese formato (suele pasar con HEIC de iPhone). Expórtalas como JPG y vuelve a soltarlas: '+ilegibles.slice(0,3).join(', '),true);
+    }
+    var leidas=Object.keys(photos).length, conRx=leidas-tray.length;
+    document.getElementById('drop-s').innerHTML=aud.length+' audio'+(aud.length===1?'':'s')+' · '+leidas+' foto'+(leidas===1?'':'s')+
+      (ilegibles.length?' · '+ilegibles.length+' ilegible'+(ilegibles.length===1?'':'s'):'')+
       (conRx?' · '+conRx+' radiografía'+(conRx===1?'':'s')+' detectada'+(conRx===1?'':'s'):'')+
       '. El resto se clasifica al analizar; mientras, están en «Sin asignar» del paso 3.';
     limpiarEjemplo();
@@ -1746,11 +1782,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
   async function rasterizar(html,cls,ancho,alto,claseBase,escala){
     var m=montar(html,cls,ancho,alto,claseBase);
-    await logosAImagen(m.nodo,(cls||'').indexOf('dark')>=0);
-    await new Promise(function(r){setTimeout(r,60);});
-    var canvas=await html2canvas(m.nodo,{scale:escala||2,backgroundColor:null,logging:false,useCORS:true,width:ancho,height:alto});
-    m.cont.remove();
-    return canvas.toDataURL('image/jpeg',0.92);
+    try{
+      try{ await logosAImagen(m.nodo,(cls||'').indexOf('dark')>=0); }
+      catch(e){ console.warn('[render] logo',e); }   /* sin logo, pero la lámina sale */
+      await new Promise(function(r){setTimeout(r,60);});
+      var canvas=await html2canvas(m.nodo,{scale:escala||2,backgroundColor:null,logging:false,useCORS:true,width:ancho,height:alto,imageTimeout:15000});
+      return canvas.toDataURL('image/jpeg',0.92);
+    } finally { m.cont.remove(); }
   }
 
   function bajar(blob,nombre){
@@ -1762,15 +1800,22 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   /* ── PDF ── */
   async function pdfDeLaminas(laminas,nombre,avance){
     var jsPDF=window.jspdf.jsPDF, doc=null;
+    var saltadas=0;
     for(var i=0;i<laminas.length;i++){
-      var r=SLIDE[laminas[i].kind](laminas[i].sl);
-      var img=await rasterizar(r.h,r.cls,960,540,'sv-in',2);
+      var img=null;
+      try{
+        var r=SLIDE[laminas[i].kind](laminas[i].sl);
+        img=await rasterizar(r.h,r.cls,960,540,'sv-in',2);
+      }catch(e){ console.error('[pdf] lámina',laminas[i].kind,e); saltadas++; }
+      if(!img)continue;
       if(!doc)doc=new jsPDF({orientation:'landscape',unit:'in',format:[10,5.625],compress:true});
       else doc.addPage([10,5.625],'landscape');
       doc.addImage(img,'JPEG',0,0,10,5.625);
       if(avance)avance((i+1)/laminas.length);
     }
-    if(doc)bajar(doc.output('blob'),nombre);
+    if(!doc)throw new Error('Ninguna lámina se pudo dibujar');
+    bajar(doc.output('blob'),nombre);
+    if(saltadas)console.warn('[pdf] láminas omitidas:',saltadas);
   }
   async function pdfDeDocumento(kind,nombre){
     var r=DOC[kind]();
@@ -1870,12 +1915,30 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     document.getElementById('desc-t').textContent=titulo;
     document.getElementById('desc-s').textContent=detalle||'';
   }
+  function faltanLibrerias(claves){
+    var f=[];
+    var necesitaLamina=claves.some(function(k){return /dsd|prop/.test(k);});
+    var necesitaPdf=claves.some(function(k){return /pdf/.test(k);});
+    var necesitaPptx=claves.some(function(k){return /pptx/.test(k);});
+    if((necesitaLamina||necesitaPdf)&&typeof window.html2canvas!=='function')f.push('html2canvas');
+    if(necesitaPdf&&!(window.jspdf&&window.jspdf.jsPDF))f.push('jsPDF');
+    if(necesitaPptx&&typeof window.PptxGenJS!=='function')f.push('PptxGenJS');
+    return f;
+  }
   async function descargarSeleccionados(){
     var elegidos=[].slice.call(document.querySelectorAll('#s5 .file input:checked'))
       .map(function(c){return {clave:c.closest('.file').dataset.file,nombre:c.closest('.file').querySelector('.finfo b').textContent};});
     if(!elegidos.length)return;
+
+    var faltan=faltanLibrerias(elegidos.map(function(e){return e.clave;}));
+    if(faltan.length){
+      aviso('No se pueden generar los archivos',
+        'No cargaron las librerías '+faltan.join(' y ')+'. Suele ser la red bloqueando el CDN: prueba con otra conexión o recarga la página.',true);
+      return;
+    }
+
     var btn=document.getElementById('dl-all'); btn.disabled=true;
-    var hechos=0, fallos=[];
+    var hechos=0, fallos=[], detalle='';
     for(var k=0;k<elegidos.length;k++){
       var e=elegidos[k], base=hechos/elegidos.length;
       avanceDesc(base,'Generando '+e.nombre,'Archivo '+(k+1)+' de '+elegidos.length);
@@ -1889,14 +1952,22 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         else if(e.clave==='plan-pdf')      await pdfDeDocumento('plan',e.nombre);
         else if(e.clave==='fases-pdf')     await pdfDeDocumento('fases',e.nombre);
         else if(e.clave==='caso-json')     bajar(new Blob([JSON.stringify({paciente:{nombre:val('f-nombre'),edad:val('f-edad'),fecha:val('f-fecha')},datos:datosActuales()},null,2)],{type:'application/json'}),e.nombre);
-      }catch(err){ console.error('[descarga]',e.clave,err); fallos.push(e.nombre); }
+      }catch(err){
+        console.error('[descarga]',e.clave,err);
+        fallos.push(e.nombre);
+        if(!detalle)detalle=(err&&err.message)||String(err);
+      }
       hechos++;
+      /* un respiro entre archivos: si salen todos de golpe, el navegador
+         bloquea las descargas múltiples y las siguientes se pierden */
+      if(k<elegidos.length-1)await new Promise(function(r){setTimeout(r,700);});
     }
     avanceDesc(1,'Listo','');
     setTimeout(function(){document.getElementById('desc-prog').classList.remove('on');},1200);
     btn.disabled=false;
     guardarCaso('entregado').catch(function(){});
-    if(fallos.length)aviso('Algunos archivos no se generaron',fallos.join(', '),true);
+    if(fallos.length)aviso(fallos.length===elegidos.length?'No se pudo generar':'Algunos archivos no se generaron',
+      fallos.join(', ')+(detalle?' — '+detalle:''),true);
     else aviso((hechos===1?'Archivo descargado':hechos+' archivos descargados'),'Revisa la carpeta de descargas de tu navegador.');
   }
 
