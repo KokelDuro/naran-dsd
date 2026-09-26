@@ -121,7 +121,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .gate-box .logo{width:130px;justify-self:center;margin-bottom:4px}
 .gate-box h2{font-size:20px;text-align:center}
 .gate-box .hint{text-align:center;margin:0}
-.gate-err{padding:10px 14px;border-radius:12px;box-shadow:var(--in-s);color:var(--warn);font-size:13px}
+.gate-err{padding:12px 14px;border-radius:12px;box-shadow:var(--in-s);color:var(--warn);font-size:12.5px;white-space:pre-wrap;line-height:1.5;user-select:text}
 .usuario{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
 .usuario .rol{padding:3px 9px;border-radius:999px;box-shadow:var(--in-s);font-size:11px;color:var(--brand)}
 .pager{display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap}
@@ -1733,21 +1733,42 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   async function traerPerfil(){
-    try{
-      var r=await window.SB.from('perfiles').select('nombre,rol,clinica_id').limit(1).single();
-      if(r.error)throw new Error(r.error.message);
-      return r.data;
-    }catch(e){
-      console.error('[perfil]',e);
-      return {nombre:'', rol:''};
-    }
+    var r=await window.SB.from('perfiles').select('nombre,rol,clinica_id').limit(1).maybeSingle();
+    if(r.error){console.error('[perfil]',r.error);return {error:r.error.message};}
+    if(!r.data)return {falta:true};
+    return {perfil:r.data};
   }
 
+  async function correoSesion(){
+    try{var u=await window.SB.auth.getUser();return (u.data&&u.data.user&&u.data.user.email)||'tu-correo@ejemplo.cl';}catch(e){return 'tu-correo@ejemplo.cl';}
+  }
+
+  /* Entrar no basta: la cuenta tiene que estar enrolada en la clínica.
+     Sin fila en `perfiles`, app.clinica_id() es nulo y RLS no deja ver ni
+     guardar nada — así que lo decimos en vez de mostrar una app vacía. */
   async function sesionLista(){
+    var p=await traerPerfil();
+    if(p.falta||p.error){
+      var mail=await correoSesion();
+      await window.SB.auth.signOut();
+      gate.hidden=false;
+      errGate(p.falta
+        ? 'Tu cuenta existe, pero todavía no está habilitada en la clínica.\n\nEl administrador tiene que correr esto una vez en Supabase → SQL Editor:\n\nselect public.enrolar(\''+mail+'\', \'Tu nombre\', \'dentista\');'
+        : 'Entraste, pero no se pudo leer tu perfil: '+p.error);
+      return;
+    }
     gate.hidden=true;
     Store.modo='supabase';
-    mostrarUsuario(await traerPerfil());
+    mostrarUsuario(p.perfil);
     await cargarCasos();
+  }
+
+  function traduceAuth(m){
+    if(/Invalid login credentials/i.test(m))return 'Correo o contraseña incorrectos.\n\nSi es la primera vez que entras, el administrador debe crear tu usuario en Supabase → Authentication → Users → Add user, con "Auto Confirm User" activado.';
+    if(/Email not confirmed/i.test(m))return 'Tu correo todavía no está confirmado. El administrador puede confirmarlo desde Supabase → Authentication → Users.';
+    if(/rate limit|too many/i.test(m))return 'Demasiados intentos seguidos. Espera un minuto y vuelve a probar.';
+    if(/Failed to fetch|NetworkError/i.test(m))return 'No hay conexión con el servidor de sesiones. Revisa tu internet y reintenta.';
+    return m;
   }
 
   async function iniciarSesion(){
@@ -1768,10 +1789,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var b=document.getElementById('g-btn'); b.disabled=true; b.textContent='Entrando…';
     var r=await window.SB.auth.signInWithPassword({email:document.getElementById('g-mail').value.trim(),password:document.getElementById('g-pass').value});
     b.disabled=false; b.textContent='Entrar';
-    if(r.error){
-      errGate(/Invalid login/i.test(r.error.message)?'Correo o contraseña incorrectos.':r.error.message);
-      return;
-    }
+    if(r.error){ errGate(traduceAuth(r.error.message)); return; }
     document.getElementById('g-pass').value='';
     await sesionLista();
   });
