@@ -566,6 +566,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
         <div class="card-h"><h2>Notas para el análisis</h2><span class="pill">opcional</span></div>
         <p class="hint">Contexto que no quedó en el audio.</p>
         <textarea class="in" id="f-notas" aria-label="Notas" placeholder="Ej.: insistió en que le gusta el color de sus dientes; no blanquear."></textarea>
+        <label class="sw" style="margin-top:14px"><span><b>Transcripción completa</b><small>Palabra por palabra. Suma varios minutos de espera; sin esto igual guarda los momentos clave y las citas del paciente.</small></span><input type="checkbox" id="f-trans"><span class="tg" aria-hidden="true"></span></label>
       </section>
     </div>
     <div class="prog card" id="prog" hidden>
@@ -1371,6 +1372,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var ce=document.getElementById('caso-estado'); if(ce){ce.className='pill';ce.textContent='Caso nuevo';}
       /* el paso de textos vuelve a la primera pestaña */
       var t0=document.querySelector('#t2seg [data-t="dsd"]'); if(t0&&t0.getAttribute('aria-selected')!=='true')t0.click();
+      var ft=document.getElementById('f-trans'); if(ft)ft.checked=false;
     }
     audios=[];
     Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
@@ -1428,7 +1430,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var tr=c.transcripcion||[];
     document.getElementById('trans-body').innerHTML=tr.length?tr.map(function(l){
       return '<p><span class="t">'+esc(l.t||'')+'</span><b>'+esc(l.quien||'')+':</b> '+esc(l.texto||'')+'</p>';}).join(''):'<p style="color:var(--faint)">Sin transcripción.</p>';
-    document.getElementById('trans-meta').textContent=audios.length+' audio'+(audios.length===1?'':'s');
+    document.getElementById('trans-meta').textContent=audios.length+' audio'+(audios.length===1?'':'s')+
+      (document.getElementById('f-trans').checked?' · completa':' · momentos clave');
     /* fotos: cada una a su lámina; poca confianza → sin asignar */
     var ids=Object.keys(photos);
     if((c.fotos||[]).length&&ids.length){
@@ -1465,26 +1468,58 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(!audios.length){paso(0,'Falta el audio','Carga la carpeta del paciente: sin audio no hay nada que analizar.',true);return;}
     btn.disabled=true;
     try{
+      /* Subida directa a Google: el audio viaja una sola vez. Si algo falla
+         (red, CORS, permisos), se manda por el camino de siempre. */
+      async function cabeceras(){
+        var c={};
+        if(window.SB){
+          var ss=await window.SB.auth.getSession();
+          if(ss.data&&ss.data.session)c.authorization='Bearer '+ss.data.session.access_token;
+        }
+        if(!c.authorization)c['x-clave']=clave();
+        return c;
+      }
+      async function subirDirecto(file,cab){
+        var r=await fetch('/api/subida',{method:'POST',headers:Object.assign({'content-type':'application/json'},cab),
+          body:JSON.stringify({nombre:file.name,tamano:file.size,tipo:file.type||'audio/mpeg'})});
+        if(!r.ok)throw new Error('sesión de subida '+r.status);
+        var d=await r.json();
+        var up=await fetch(d.url,{method:'POST',headers:{'content-length':String(file.size),
+          'X-Goog-Upload-Offset':'0','X-Goog-Upload-Command':'upload, finalize'},body:file});
+        if(!up.ok)throw new Error('subida '+up.status);
+        var j=await up.json();
+        if(!j.file||!j.file.name)throw new Error('respuesta inesperada');
+        return j.file.name;
+      }
+
+      paso(10,'Enviando las grabaciones…','Son '+audios.length+' archivo(s).');
       var fd=new FormData();
       fd.append('nombre',(val('f-nombre')||'').split(' ')[0]);
       fd.append('edad',val('f-edad')||''); fd.append('notas',val('f-notas')||'');
       fd.append('ejemplos','[]');
-      audios.forEach(function(a){fd.append('audio',a.f,a.f.name);});
+      fd.append('transcripcion',document.getElementById('f-trans').checked?'completa':'clave');
+      var cab=await cabeceras();
+      var subidos=0;
+      var resultados=await Promise.all(audios.map(function(a){
+        return subirDirecto(a.f,cab).then(function(nombre){return {ok:true,nombre:nombre};})
+          .catch(function(e){console.warn('[subida directa]',a.f.name,e.message);return {ok:false};});
+      }));
+      resultados.forEach(function(r2,i){
+        if(r2.ok){ fd.append('audio_subido',r2.nombre); subidos++; }
+        else fd.append('audio',audios[i].f,audios[i].f.name);
+      });
+      console.log('[analizar] audios subidos directo:',subidos,'de',audios.length);
       var ids=Object.keys(photos);
       ids.forEach(function(id){
         var p2=photos[id], chica=p2.mini||p2.file;
         if(chica)fd.append('foto',chica,(p2.n||'foto')+'.jpg');
       });
-      paso(15,'Subiendo la consulta…','Se envían '+audios.length+' audio(s) y '+ids.length+' foto(s).');
+      paso(30,'Grabaciones enviadas','Ahora Gemini escucha la consulta.');
       var mins=Math.round(audios.reduce(function(a,b){return a+(b.dur||0);},0)/60);
-      var t=setTimeout(function(){paso(45,'Escuchando y transcribiendo…',mins?('Son '+mins+' minutos de consulta; suele tardar algo menos que eso.'):'');},2500);
+      var completa=document.getElementById('f-trans').checked;
+      var t=setTimeout(function(){paso(45,'Escuchando la consulta…',
+        (mins?'Son '+mins+' minutos de grabación. ':'')+(completa?'Con transcripción completa tarda bastante más.':''));},2500);
       var t2=setTimeout(function(){paso(70,'Ordenando los textos…','Motivo, expectativas, plan y perfil de venta.');},20000);
-      var cab={};
-      if(window.SB){
-        var ss=await window.SB.auth.getSession();
-        if(ss.data&&ss.data.session)cab.authorization='Bearer '+ss.data.session.access_token;
-      }
-      if(!cab.authorization)cab['x-clave']=clave();
       var r=await fetch('/api/analizar',{method:'POST',headers:cab,body:fd});
       clearTimeout(t);clearTimeout(t2);
       var data=await r.json().catch(function(){return {error:'Respuesta ilegible del servidor'};});

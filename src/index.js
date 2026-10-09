@@ -4,7 +4,7 @@
  * Los archivos estáticos de ./public los sirve Cloudflare directamente (binding
  * ASSETS). Lo que no calza con un archivo llega acá: solo /api/*.
  */
-import { analizar } from './analizar.js';
+import { analizar, urlDeSubida } from './analizar.js';
 import { salud } from './salud.js';
 
 const json = (obj, status = 200) =>
@@ -30,6 +30,10 @@ export default {
 
     if (pathname === '/api/salud') {
       return request.method === 'GET' ? salud(env) : json({ error: 'Usa GET' }, 405);
+    }
+
+    if (pathname === '/api/subida') {
+      return request.method === 'POST' ? urlDeSubida(request, env) : json({ error: 'Usa POST' }, 405);
     }
 
     if (pathname === '/api/analizar') {

@@ -118,6 +118,45 @@ async function generar(env, modelos, cuerpo) {
   return { error: ultimo };
 }
 
+/* Abre una sesión de subida y devuelve la URL. El navegador sube los bytes
+ * directo a Google con esa URL, sin pasarlos por este Worker: el audio viaja
+ * una vez en lugar de dos. La API key no sale de aquí. */
+export async function urlDeSubida(request, env) {
+  const quien = await autorizado(request, env);
+  if (!quien.ok) return json({ error: quien.motivo }, 401);
+  if (!env.GEMINI_API_KEY) return json({ error: 'Falta configurar GEMINI_API_KEY' }, 500);
+
+  const { nombre, tamano, tipo } = await request.json().catch(() => ({}));
+  if (!tamano || tamano > 500 * 1024 * 1024) return json({ error: 'Tamaño de archivo no válido' }, 400);
+
+  const r = await fetch(`${API}/upload/v1beta/files?key=${env.GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(tamano),
+      'X-Goog-Upload-Header-Content-Type': tipo || 'audio/mpeg',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: nombre || 'audio' } }),
+  });
+  const url = r.headers.get('x-goog-upload-url');
+  if (!r.ok || !url) return json({ error: `No se pudo abrir la subida (${r.status})` }, 502);
+  return json({ ok: true, url });
+}
+
+/* Espera a que un archivo ya subido quede listo para usarse. */
+async function esperarActivo(env, nombreArchivo) {
+  let f = { state: 'PROCESSING', name: nombreArchivo };
+  for (let i = 0; i < 40 && f.state === 'PROCESSING'; i++) {
+    const g = await fetch(`${API}/v1beta/${nombreArchivo}?key=${env.GEMINI_API_KEY}`);
+    f = await g.json();
+    if (f.state === 'PROCESSING') await new Promise((r) => setTimeout(r, i < 6 ? 400 : 1200));
+  }
+  if (f.state !== 'ACTIVE') throw new Error(`El audio no quedó listo (${f.state || 'desconocido'})`);
+  return { file_data: { mime_type: f.mimeType, file_uri: f.uri } };
+}
+
 /* ── 3. Subir un archivo grande por la Files API ─────────────────────── */
 async function subir(env, file) {
   const start = await fetch(`${API}/upload/v1beta/files?key=${env.GEMINI_API_KEY}`, {
@@ -164,7 +203,7 @@ async function inline(file) {
 }
 
 /* ── 4. El prompt ────────────────────────────────────────────────────── */
-function prompt({ nombre, edad, notas, fotos, ejemplos, nAudios }) {
+function prompt({ nombre, edad, notas, fotos, ejemplos, nAudios, completa }) {
   return `Eres el asistente de Naran Estudio Dental. Recibes la grabación completa de la primera consulta (uno o más audios en orden) y las fotos clínicas del paciente.
 
 PACIENTE: ${nombre || '(sin nombre)'}${edad ? `, ${edad} años` : ''}.
@@ -175,7 +214,7 @@ ARCHIVOS DE FOTO, en este orden: ${fotos.map((f, i) => `[${i}] ${f}`).join(', ')
 Devuelve EXCLUSIVAMENTE un JSON con esta forma:
 
 {
-  "transcripcion": [{"t":"mm:ss","audio":1,"quien":"Dra.|Paciente|Otro","texto":"..."}],
+  "transcripcion": [{"t":"mm:ss","audio":1,"quien":"Dra.|Paciente|Otro","texto":"..."}],   // ${completa ? 'palabra por palabra, de principio a fin' : 'SOLO los 12 a 20 momentos que importan, no la conversación entera'}
   "dsd": {
     "motivo_consulta":"", "lo_que_buscas":"", "lo_importante_para_ti":"", "expectativas":"", "frase_sintesis":""
   },
@@ -207,6 +246,9 @@ REGLAS, en orden de importancia:
 6. Piezas siempre en notación FDI (1.1, 2.3…).
 7. "fotos": clasifica cada archivo por su índice. "categoria" ∈ retrato_serio | retrato_sonriendo | perfil | sonrisa_frontal | sonrisa_lateral | escaneo | mapa_oclusal | rx_panoramica | rx_periapical | otro. "lado" ∈ izquierdo | derecho | null (desde la perspectiva del paciente). "vista" ∈ frontal | superior | inferior | lateral | null. "confianza" entre 0 y 1; si dudas, ponla bajo 0.6.
 8. Español de Chile. No inventes nombres propios.
+9. ${completa
+  ? 'La transcripción va completa, palabra por palabra.'
+  : 'NO transcribas la conversación entera: en "transcripcion" deja solo entre 12 y 20 intervenciones, las que realmente sostienen el caso (motivo, expectativas, objeciones, hallazgos del dentista, cierre). Es lo más importante de esta instrucción: una transcripción larga hace esperar al dentista sin aportarle nada que no esté ya en "evidencia".'}
 ${ejemplos && ejemplos.length ? `\nCORRECCIONES PREVIAS DE ESTA CLÍNICA (imita este estilo y no repitas estos errores):\n${ejemplos.map((e) => `· ${e.campo}: la IA escribió "${e.valor_ia}" y quedó como "${e.valor_final}"`).join('\n')}` : ''}`;
 }
 
@@ -220,8 +262,10 @@ export async function analizar(request, env) {
 
     const form = await request.formData();
     const audios = form.getAll('audio').filter((f) => f && typeof f === 'object');
+    // Los que el navegador ya subió directo a Google llegan como nombre de archivo.
+    const yaSubidos = form.getAll('audio_subido').filter((x) => typeof x === 'string' && x);
     const fotos = form.getAll('foto').filter((f) => f && typeof f === 'object');
-    if (!audios.length) return json({ error: 'Sube al menos un audio de la consulta' }, 400);
+    if (!audios.length && !yaSubidos.length) return json({ error: 'Sube al menos un audio de la consulta' }, 400);
 
     const meta = {
       nombre: form.get('nombre') || '',
@@ -229,19 +273,22 @@ export async function analizar(request, env) {
       notas: form.get('notas') || '',
       fotos: fotos.map((f) => f.name),
       ejemplos: JSON.parse(form.get('ejemplos') || '[]'),
-      nAudios: audios.length,
+      nAudios: audios.length + yaSubidos.length,
+      completa: form.get('transcripcion') === 'completa',
     };
 
     const t0 = Date.now();
     // Los audios son lo pesado: van en paralelo, no uno después del otro.
-    const [partesAudio, partesFoto] = await Promise.all([
+    const [partesSubidas, partesAudio, partesFoto] = await Promise.all([
+      Promise.all(yaSubidos.map((nombre) => esperarActivo(env, nombre))),
       Promise.all(audios.map((a) => (a.size > MAX_INLINE ? subir(env, a) : inline(a)))),
       Promise.all(fotos.map((f) => inline(f))),
     ]);
     const tSubida = Date.now() - t0;
-    const partes = [{ text: prompt(meta) }, ...partesAudio, ...partesFoto];
+    const partes = [{ text: prompt(meta) }, ...partesSubidas, ...partesAudio, ...partesFoto];
     console.log(
-      `[analizar] ${audios.length} audio(s) ${Math.round(audios.reduce((s2, a) => s2 + a.size, 0) / 1048576)}MB + ` +
+      `[analizar] ${audios.length + yaSubidos.length} audio(s) (${yaSubidos.length} subidos por el navegador) ` +
+        `${Math.round(audios.reduce((s2, a) => s2 + a.size, 0) / 1048576)}MB + ` +
         `${fotos.length} foto(s) · preparado en ${(tSubida / 1000).toFixed(1)}s`,
     );
 
