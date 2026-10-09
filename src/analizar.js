@@ -203,11 +203,16 @@ async function inline(file) {
 }
 
 /* ── 4. El prompt ────────────────────────────────────────────────────── */
-function prompt({ nombre, edad, notas, fotos, ejemplos, nAudios, completa }) {
+function prompt({ nombre, edad, notas, fotos, ejemplos, nAudios, completa, texto }) {
   return `Eres el asistente de Naran Estudio Dental. Recibes la grabación completa de la primera consulta (uno o más audios en orden) y las fotos clínicas del paciente.
 
 PACIENTE: ${nombre || '(sin nombre)'}${edad ? `, ${edad} años` : ''}.
-GRABACIONES ADJUNTAS: ${nAudios}. Son partes consecutivas de la MISMA consulta, en orden. Escúchalas TODAS y trátalas como una sola conversación continua: la transcripción debe cubrir de principio a fin, numerando en "audio" de 1 a ${nAudios} según de cuál provenga cada línea. No te detengas al terminar la primera.
+${texto ? `TRANSCRIPCIÓN DE LA CONSULTA (ya hecha, no hay audio que escuchar):
+«««
+${texto}
+»»»
+Trabaja con ese texto tal cual. No inventes nada que no esté ahí.` : ''}
+${nAudios ? `GRABACIONES ADJUNTAS: ${nAudios}.` : ''} Son partes consecutivas de la MISMA consulta, en orden. Escúchalas TODAS y trátalas como una sola conversación continua: la transcripción debe cubrir de principio a fin, numerando en "audio" de 1 a ${nAudios} según de cuál provenga cada línea. No te detengas al terminar la primera.
 ${notas ? `NOTAS DEL DENTISTA: ${notas}\n` : ''}
 ARCHIVOS DE FOTO, en este orden: ${fotos.map((f, i) => `[${i}] ${f}`).join(', ') || '(ninguna)'}.
 
@@ -265,7 +270,9 @@ export async function analizar(request, env) {
     // Los que el navegador ya subió directo a Google llegan como nombre de archivo.
     const yaSubidos = form.getAll('audio_subido').filter((x) => typeof x === 'string' && x);
     const fotos = form.getAll('foto').filter((f) => f && typeof f === 'object');
-    if (!audios.length && !yaSubidos.length) return json({ error: 'Sube al menos un audio de la consulta' }, 400);
+    const textoConsulta = (form.get('texto_consulta') || '').trim();
+    if (!audios.length && !yaSubidos.length && !textoConsulta)
+      return json({ error: 'Sube el audio de la consulta o su transcripción' }, 400);
 
     const meta = {
       nombre: form.get('nombre') || '',
@@ -275,6 +282,7 @@ export async function analizar(request, env) {
       ejemplos: JSON.parse(form.get('ejemplos') || '[]'),
       nAudios: audios.length + yaSubidos.length,
       completa: form.get('transcripcion') === 'completa',
+      texto: (form.get('texto_consulta') || '').trim(),
     };
 
     const t0 = Date.now();
@@ -287,7 +295,8 @@ export async function analizar(request, env) {
     const tSubida = Date.now() - t0;
     const partes = [{ text: prompt(meta) }, ...partesSubidas, ...partesAudio, ...partesFoto];
     console.log(
-      `[analizar] ${audios.length + yaSubidos.length} audio(s) (${yaSubidos.length} subidos por el navegador) ` +
+      `[analizar] ${textoConsulta ? `transcripción de ${textoConsulta.length} caracteres · ` : ''}` +
+        `${audios.length + yaSubidos.length} audio(s) (${yaSubidos.length} subidos por el navegador) ` +
         `${Math.round(audios.reduce((s2, a) => s2 + a.size, 0) / 1048576)}MB + ` +
         `${fotos.length} foto(s) · preparado en ${(tSubida / 1000).toFixed(1)}s`,
     );

@@ -1155,6 +1155,36 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var IMG_RE=/\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?|avif)$/i;
   var esAudio=function(f){var t=(f.type||'');return t.startsWith('audio/')||t.startsWith('video/')||AUDIO_RE.test(f.name);};
   var esFoto =function(f){return (f.type||'').startsWith('image/')||IMG_RE.test(f.name);};
+  var TXT_RE=/\.(txt|md|markdown|srt|vtt|text|log)$/i;
+  var esTexto=function(f){return TXT_RE.test(f.name)||(f.type||'')==='text/plain';};
+  var transcripcion=null;      /* {nombre, texto, lineas} si se cargó una */
+
+  /* Acepta lo que exporta TurboScribe: texto plano, SRT o VTT. De los
+     subtítulos nos quedamos con el minuto y la frase. */
+  function leerTranscripcion(file){
+    return file.text().then(function(bruto){
+      var t=bruto.replace(/\r/g,'').trim();
+      if(/^WEBVTT/i.test(t)||/-->/.test(t)){
+        var out=[], bloques=t.split(/\n\s*\n/);
+        bloques.forEach(function(b){
+          var ls=b.split('\n').filter(function(x){return x.trim();});
+          if(!ls.length)return;
+          if(/^WEBVTT/i.test(ls[0]))ls.shift();
+          if(ls.length&&/^\d+$/.test(ls[0].trim()))ls.shift();
+          var mm='';
+          if(ls.length&&/-->/.test(ls[0])){
+            var m=/(\d{1,2}):(\d{2}):(\d{2})/.exec(ls[0]);
+            if(m)mm=(+m[1]*60+ +m[2])+':'+m[3];
+            ls.shift();
+          }
+          var txt=ls.join(' ').trim();
+          if(txt)out.push((mm?'['+mm+'] ':'')+txt);
+        });
+        t=out.join('\n');
+      }
+      return {nombre:file.name,texto:t,lineas:t.split('\n').filter(function(x){return x.trim();}).length};
+    });
+  }
   var mmss=function(s){s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
   var mb=function(b){return b>=1048576?(b/1048576).toFixed(1).replace('.',',')+' MB':Math.round(b/1024)+' KB';};
 
@@ -1228,11 +1258,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var audios=[];               /* [{f,dur}] */
   var seqFoto=0;               /* ids únicos aunque se carguen en varias tandas */
   function pintaInventario(ignorados){
-    document.getElementById('aud-list').innerHTML=audios.length?audios.map(function(a){
+    var tr=transcripcion;
+    document.getElementById('aud-list').innerHTML=(tr?
+      '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span><span title="'+esc(tr.nombre)+'">'+esc(tr.nombre)+'</span><small>'+tr.lineas+' líneas</small></div>':'')+
+      (audios.length?audios.map(function(a){
       return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(a.f.name)+'">'+esc(a.f.name)+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(a.f.size)+'</small></div>';
-    }).join(''):'<div class="ign" style="margin:0"><span>Ningún audio en la carpeta.</span></div>';
+    }).join(''):(tr?'':'<div class="ign" style="margin:0"><span>Ningún audio ni transcripción en la carpeta.</span></div>'));
     var tot=audios.reduce(function(s,a){return s+(a.dur||0);},0);
-    document.getElementById('aud-tot').textContent=audios.length?(tot?mmss(tot)+' en total':audios.length+' archivos'):'—';
+    document.getElementById('aud-tot').textContent=tr?'transcripción lista':(audios.length?(tot?mmss(tot)+' en total':audios.length+' archivos'):'—');
     var ids=Object.keys(photos);
     document.getElementById('strip').innerHTML=ids.map(function(id){var p=photos[id];
       return '<div class="tile '+(p.k||'face')+'" style="cursor:default;width:42px;height:42px" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k||'face'])+'</div>';}).join('');
@@ -1241,14 +1274,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var ign=document.getElementById('ign');
     if(ignorados&&ignorados.length){ign.hidden=false;ign.querySelector('span').innerHTML='Ignorado'+(ignorados.length>1?'s':'')+': '+ignorados.slice(0,4).map(function(x){return '<code>'+esc(x)+'</code>';}).join(' ')+(ignorados.length>4?' y '+(ignorados.length-4)+' más':'');}
     else ign.hidden=true;
-    var st=document.getElementById('inv-state'),tot=audios.length+ids.length;
+    var st=document.getElementById('inv-state'),tot=audios.length+ids.length+(tr?1:0);
     st.className='pill'+(tot?' ok':'');
-    st.innerHTML=tot?('<span class="d"></span>'+tot+' archivos · '+audios.length+' audio'+(audios.length===1?'':'s')+' y '+ids.length+' foto'+(ids.length===1?'':'s')):'Sin archivos';
+    st.innerHTML=tot?('<span class="d"></span>'+tot+' archivos · '+(tr?'transcripción':audios.length+' audio'+(audios.length===1?'':'s'))+' y '+ids.length+' foto'+(ids.length===1?'':'s')):'Sin archivos';
   }
 
   function huella(f){return f.name+'·'+f.size;}
   async function cargarArchivos(lista, etiqueta){
-    var aud=[],fot=[],ign=[],repetidos=0;
+    var aud=[],fot=[],txts=[],ign=[],repetidos=0;
     /* lo que ya está cargado, para no duplicarlo si se suelta dos veces */
     var yaEstan={};
     audios.forEach(function(a){yaEstan[huella(a.f)]=true;});
@@ -1257,9 +1290,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     for(var i=0;i<lista.length;i++){var f=lista[i];
       if(/^\./.test(f.name)) continue;
       if(yaEstan[huella(f)]){repetidos++;continue;}
-      if(esAudio(f))aud.push(f); else if(esFoto(f))fot.push(f); else ign.push(f.name);}
+      if(esTexto(f))txts.push(f); else if(esAudio(f))aud.push(f); else if(esFoto(f))fot.push(f); else ign.push(f.name);}
 
-    if(!aud.length&&!fot.length){
+    if(!aud.length&&!fot.length&&!txts.length){
       document.getElementById('drop-s').textContent=repetidos
         ? 'Esos archivos ya estaban cargados.'
         : 'Ahí no había audios ni imágenes.';
@@ -1287,6 +1320,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       else if(cl.cat==='rx_periapical')slides[9].p.push(id);
       else tray.push(id);
     }
+    /* transcripción ya hecha: reemplaza la anterior si se suelta otra */
+    for(var q=0;q<txts.length;q++){
+      try{ transcripcion=await leerTranscripcion(txts[q]); }
+      catch(e){ ign.push(txts[q].name); }
+    }
+
     /* audios → se suman a los que ya había, en orden de nombre */
     var nuevos=aud.map(function(f){return {f:f,dur:0};});
     audios=audios.concat(nuevos).sort(function(a,b){return a.f.name.localeCompare(b.f.name,'es',{numeric:true});});
@@ -1307,7 +1346,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var leidas=Object.keys(photos).length;
     console.log('[carpeta] recibidos:',lista.length,'· audios:',aud.map(function(f){return f.name;}),
                 '· fotos:',fot.length,'· ignorados:',ign,'· repetidos:',repetidos);
-    document.getElementById('drop-s').innerHTML=audios.length+' audio'+(audios.length===1?'':'s')+' · '+leidas+' foto'+(leidas===1?'':'s')+
+    document.getElementById('drop-s').innerHTML=(transcripcion?'transcripción + ':'')+audios.length+' audio'+(audios.length===1?'':'s')+' · '+leidas+' foto'+(leidas===1?'':'s')+
       (ilegibles.length?' · '+ilegibles.length+' ilegible'+(ilegibles.length===1?'':'s'):'')+
       (repetidos?' · '+repetidos+' repetid'+(repetidos===1?'o omitido':'os omitidos'):'')+
       '. Puedes soltar más archivos para agregarlos; «Nuevo caso» vacía todo.';
@@ -1362,7 +1401,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var st=document.getElementById('pdf-state'); if(st){st.className='pill';st.textContent='Sin PDF';}
       var pn=document.getElementById('pdf-name'); if(pn)pn.textContent='Arrastra el PDF de Dentalink';
       var ps=document.getElementById('pdf-sub'); if(ps)ps.textContent='O elígelo con los botones. Se lee aquí mismo, no se sube a ningún servidor.';
-      seqFoto=0;
+      seqFoto=0; transcripcion=null;
       var nota=document.getElementById('pdf-note'); if(nota)nota.textContent='';
       try{ renderTable(); renderTotals(); }catch(e){ console.warn('[nuevo caso] propuesta',e); }
       /* barras de progreso y avisos de la corrida anterior */
@@ -1459,13 +1498,16 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
   function clave(){
     var c=null; try{c=localStorage.getItem('naran-clave');}catch(e){}
-    if(!c){c=window.prompt('Clave de acceso de la clínica (la configuraste en Cloudflare como CLAVE_PRUEBA):');
-      if(c) try{localStorage.setItem('naran-clave',c);}catch(e){}}
+    if(!c){
+      try{ c=window.prompt('Clave de acceso de la clínica (la configuraste en Cloudflare como CLAVE_PRUEBA):'); }
+      catch(e){ c=null; }
+      if(c) try{localStorage.setItem('naran-clave',c);}catch(e){}
+    }
     return c||'';
   }
   document.getElementById('btn-analizar').addEventListener('click',async function(){
     var btn=this;
-    if(!audios.length){paso(0,'Falta el audio','Carga la carpeta del paciente: sin audio no hay nada que analizar.',true);return;}
+    if(!audios.length&&!transcripcion){paso(0,'Falta la consulta','Carga la carpeta del paciente: sin audio ni transcripción no hay nada que analizar.',true);return;}
     btn.disabled=true;
     try{
       /* Subida directa a Google: el audio viaja una sola vez. Si algo falla
@@ -1492,7 +1534,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         return j.file.name;
       }
 
-      paso(10,'Enviando las grabaciones…','Son '+audios.length+' archivo(s).');
+      paso(10,transcripcion?'Enviando la transcripción…':'Enviando las grabaciones…',transcripcion?transcripcion.lineas+' líneas de consulta.':'Son '+audios.length+' archivo(s).');
       var fd=new FormData();
       fd.append('nombre',(val('f-nombre')||'').split(' ')[0]);
       fd.append('edad',val('f-edad')||''); fd.append('notas',val('f-notas')||'');
@@ -1500,28 +1542,39 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       fd.append('transcripcion',document.getElementById('f-trans').checked?'completa':'clave');
       var cab=await cabeceras();
       var subidos=0;
-      var resultados=await Promise.all(audios.map(function(a){
+      /* con transcripción no hace falta mandar el audio: es mucho más rápido */
+      var mandarAudio=transcripcion?[]:audios;
+      if(transcripcion)fd.append('texto_consulta',transcripcion.texto);
+      var resultados=await Promise.all(mandarAudio.map(function(a){
         return subirDirecto(a.f,cab).then(function(nombre){return {ok:true,nombre:nombre};})
           .catch(function(e){console.warn('[subida directa]',a.f.name,e.message);return {ok:false};});
       }));
       resultados.forEach(function(r2,i){
         if(r2.ok){ fd.append('audio_subido',r2.nombre); subidos++; }
-        else fd.append('audio',audios[i].f,audios[i].f.name);
+        else fd.append('audio',mandarAudio[i].f,mandarAudio[i].f.name);
       });
-      console.log('[analizar] audios subidos directo:',subidos,'de',audios.length);
+      console.log('[analizar] audios subidos directo:',subidos,'de',mandarAudio.length,transcripcion?'(hay transcripción: no se manda audio)':'');
       var ids=Object.keys(photos);
       ids.forEach(function(id){
         var p2=photos[id], chica=p2.mini||p2.file;
         if(chica)fd.append('foto',chica,(p2.n||'foto')+'.jpg');
       });
-      paso(30,'Grabaciones enviadas','Ahora Gemini escucha la consulta.');
       var mins=Math.round(audios.reduce(function(a,b){return a+(b.dur||0);},0)/60);
       var completa=document.getElementById('f-trans').checked;
-      var t=setTimeout(function(){paso(45,'Escuchando la consulta…',
-        (mins?'Son '+mins+' minutos de grabación. ':'')+(completa?'Con transcripción completa tarda bastante más.':''));},2500);
-      var t2=setTimeout(function(){paso(70,'Ordenando los textos…','Motivo, expectativas, plan y perfil de venta.');},20000);
-      var r=await fetch('/api/analizar',{method:'POST',headers:cab,body:fd});
-      clearTimeout(t);clearTimeout(t2);
+      /* estimación solo para mover la barra; el final lo marca la respuesta */
+      var espera=transcripcion?(completa?60:30):(20+mins*(completa?5:2.5));
+      var t0=Date.now();
+      var reloj=setInterval(function(){
+        var seg=(Date.now()-t0)/1000;
+        /* se acerca al 95 % sin llegar nunca: nunca queda clavada */
+        var pct=30+65*(1-Math.exp(-seg/Math.max(8,espera*0.55)));
+        var etapa=seg<6?(transcripcion?'Leyendo la consulta…':'Escuchando la consulta…')
+                 :seg<espera*0.6?'Ordenando lo que se dijo…':'Redactando los documentos…';
+        paso(Math.min(95,pct),etapa,'Van '+mmss(seg)+(espera>45?' · suele tardar cerca de '+mmss(espera):''));
+      },500);
+      var r;
+      try{ r=await fetch('/api/analizar',{method:'POST',headers:cab,body:fd}); }
+      finally{ clearInterval(reloj); }
       var data=await r.json().catch(function(){return {error:'Respuesta ilegible del servidor'};});
       if(!r.ok||!data.ok){
         var m=data.error||('Error '+r.status);
