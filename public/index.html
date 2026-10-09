@@ -544,7 +544,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
           <input type="file" id="f-dir" webkitdirectory directory multiple hidden>
           <input type="file" id="f-files" multiple accept="audio/*,image/*,.m4a,.heic" hidden>
           <span class="fi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
-          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">O elígela con los botones. Se aceptan audios (m4a, mp3, wav) e imágenes (jpg, png, heic).</small></div>
+          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">O elígela con los botones. Puedes soltar los archivos en varias tandas: se van sumando.</small></div>
           <div class="drop-btns"><button class="btn ghost" type="button" id="btn-dir">Elegir carpeta</button><button class="btn ghost" type="button" id="btn-files">Elegir archivos</button></div>
         </div>
         <div class="inv">
@@ -1183,7 +1183,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         try{ c.getContext('2d').drawImage(img,0,0,c.width,c.height); }catch(err){ return fin(null); }
         c.toBlob(function(b){
           if(!b)return fin(null);
-          fin({blob:b,url:URL.createObjectURL(b),ar:w/h});
+          /* copia chica: a Gemini le sobra para clasificar y viaja mucho más rápido */
+          var L2=900, e2=Math.min(1,L2/Math.max(w,h));
+          var c2=document.createElement('canvas'); c2.width=Math.round(w*e2); c2.height=Math.round(h*e2);
+          try{ c2.getContext('2d').drawImage(img,0,0,c2.width,c2.height); }catch(err){ return fin({blob:b,url:URL.createObjectURL(b),ar:w/h}); }
+          c2.toBlob(function(b2){
+            fin({blob:b,url:URL.createObjectURL(b),ar:w/h,mini:b2||b});
+          },'image/jpeg',0.72);
         },'image/jpeg',0.85);
       };
       img.onerror=function(){ fin(null); };
@@ -1216,6 +1222,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   var audios=[];               /* [{f,dur}] */
+  var seqFoto=0;               /* ids únicos aunque se carguen en varias tandas */
   function pintaInventario(ignorados){
     document.getElementById('aud-list').innerHTML=audios.length?audios.map(function(a){
       return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(a.f.name)+'">'+esc(a.f.name)+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(a.f.size)+'</small></div>';
@@ -1235,13 +1242,23 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     st.innerHTML=tot?('<span class="d"></span>'+tot+' archivos · '+audios.length+' audio'+(audios.length===1?'':'s')+' y '+ids.length+' foto'+(ids.length===1?'':'s')):'Sin archivos';
   }
 
+  function huella(f){return f.name+'·'+f.size;}
   async function cargarArchivos(lista, etiqueta){
-    var aud=[],fot=[],ign=[];
+    var aud=[],fot=[],ign=[],repetidos=0;
+    /* lo que ya está cargado, para no duplicarlo si se suelta dos veces */
+    var yaEstan={};
+    audios.forEach(function(a){yaEstan[huella(a.f)]=true;});
+    Object.keys(photos).forEach(function(id){if(photos[id].orig)yaEstan[photos[id].orig]=true;});
+
     for(var i=0;i<lista.length;i++){var f=lista[i];
       if(/^\./.test(f.name)) continue;
+      if(yaEstan[huella(f)]){repetidos++;continue;}
       if(esAudio(f))aud.push(f); else if(esFoto(f))fot.push(f); else ign.push(f.name);}
+
     if(!aud.length&&!fot.length){
-      document.getElementById('drop-s').textContent='En esa carpeta no había audios ni imágenes. El caso de ejemplo sigue cargado.';
+      document.getElementById('drop-s').textContent=repetidos
+        ? 'Esos archivos ya estaban cargados.'
+        : 'Ahí no había audios ni imágenes.';
       return;
     }
     var orden=function(a,b){return a.name.localeCompare(b.name,'es',{numeric:true});};
@@ -1251,38 +1268,39 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var ce=document.getElementById('caso-estado'); if(ce){ce.className='pill ok';ce.innerHTML='<span class="d"></span>Carpeta cargada';}
     document.getElementById('drop-s').textContent='Leyendo ' + (aud.length+fot.length) + ' archivos…';
 
-    /* fotos → reemplazan el caso de ejemplo */
-    Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
-    slides.forEach(function(sl){if(sl.p)sl.p=[];});
-    tray.length=0;
+    /* se agregan a lo que ya hubiera: para vaciar está «Nuevo caso» */
+    var primeraCarga=!audios.length&&!Object.keys(photos).length;
     var ilegibles=[];
     for(var j=0;j<fot.length;j++){
       var nz=await normalizar(fot[j]);
       if(!nz){ ilegibles.push(fot[j].name); continue; }
-      var id='f'+j;
+      var id='f'+(seqFoto++);
       var cl=await clasificaLocal(nz.url);
       photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:nz.url,
                   file:new File([nz.blob],fot[j].name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}),
-                  rv:!cl.k,ar:nz.ar||cl.ar||1.33};
+                  mini:nz.mini,orig:huella(fot[j]),rv:!cl.k,ar:nz.ar||cl.ar||1.33};
       if(cl.cat==='rx_panoramica')slides[8].p.push(id);
       else if(cl.cat==='rx_periapical')slides[9].p.push(id);
       else tray.push(id);
     }
-    /* audios → duraciones */
-    audios=aud.map(function(f){return {f:f,dur:0};});
+    /* audios → se suman a los que ya había, en orden de nombre */
+    var nuevos=aud.map(function(f){return {f:f,dur:0};});
+    audios=audios.concat(nuevos).sort(function(a,b){return a.f.name.localeCompare(b.f.name,'es',{numeric:true});});
     pintaInventario(ign);
-    for(var k=0;k<audios.length;k++){audios[k].dur=await duracion(audios[k].f);pintaInventario(ign);}
+    for(var k=0;k<audios.length;k++){
+      if(!audios[k].dur){audios[k].dur=await duracion(audios[k].f);pintaInventario(ign);}
+    }
 
     if(ilegibles.length){
       aviso(ilegibles.length+(ilegibles.length===1?' foto no se pudo leer':' fotos no se pudieron leer'),
         'El navegador no reconoce ese formato (suele pasar con HEIC de iPhone). Expórtalas como JPG y vuelve a soltarlas: '+ilegibles.slice(0,3).join(', '),true);
     }
-    var leidas=Object.keys(photos).length, conRx=leidas-tray.length;
-    document.getElementById('drop-s').innerHTML=aud.length+' audio'+(aud.length===1?'':'s')+' · '+leidas+' foto'+(leidas===1?'':'s')+
+    var leidas=Object.keys(photos).length;
+    document.getElementById('drop-s').innerHTML=audios.length+' audio'+(audios.length===1?'':'s')+' · '+leidas+' foto'+(leidas===1?'':'s')+
       (ilegibles.length?' · '+ilegibles.length+' ilegible'+(ilegibles.length===1?'':'s'):'')+
-      (conRx?' · '+conRx+' radiografía'+(conRx===1?'':'s')+' detectada'+(conRx===1?'':'s'):'')+
-      '. El resto se clasifica al analizar; mientras, están en «Sin asignar» del paso 3.';
-    limpiarEjemplo();
+      (repetidos?' · '+repetidos+' repetid'+(repetidos===1?'o omitido':'os omitidos'):'')+
+      '. Puedes soltar más archivos para agregarlos; «Nuevo caso» vacía todo.';
+    if(primeraCarga)limpiarEjemplo();
     render(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles();
   }
 
@@ -1333,6 +1351,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var st=document.getElementById('pdf-state'); if(st){st.className='pill';st.textContent='Sin PDF';}
       var pn=document.getElementById('pdf-name'); if(pn)pn.textContent='Arrastra el PDF de Dentalink';
       var ps=document.getElementById('pdf-sub'); if(ps)ps.textContent='O elígelo con los botones. Se lee aquí mismo, no se sube a ningún servidor.';
+      seqFoto=0;
       var nota=document.getElementById('pdf-note'); if(nota)nota.textContent='';
       try{ renderTable(); renderTotals(); }catch(e){ console.warn('[nuevo caso] propuesta',e); }
       /* barras de progreso y avisos de la corrida anterior */
@@ -1442,9 +1461,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       fd.append('ejemplos','[]');
       audios.forEach(function(a){fd.append('audio',a.f,a.f.name);});
       var ids=Object.keys(photos);
-      ids.forEach(function(id){if(photos[id].file)fd.append('foto',photos[id].file,photos[id].file.name);});
+      ids.forEach(function(id){
+        var p2=photos[id], chica=p2.mini||p2.file;
+        if(chica)fd.append('foto',chica,(p2.n||'foto')+'.jpg');
+      });
       paso(15,'Subiendo la consulta…','Se envían '+audios.length+' audio(s) y '+ids.length+' foto(s).');
-      var t=setTimeout(function(){paso(45,'Escuchando y transcribiendo…','Un audio de 40 minutos tarda 1 a 3 minutos.');},2500);
+      var mins=Math.round(audios.reduce(function(a,b){return a+(b.dur||0);},0)/60);
+      var t=setTimeout(function(){paso(45,'Escuchando y transcribiendo…',mins?('Son '+mins+' minutos de consulta; suele tardar algo menos que eso.'):'');},2500);
       var t2=setTimeout(function(){paso(70,'Ordenando los textos…','Motivo, expectativas, plan y perfil de venta.');},20000);
       var cab={};
       if(window.SB){
@@ -1463,7 +1486,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       }
       paso(95,'Escribiendo los documentos…','');
       aplicarCaso(data.caso||{});
-      paso(100,'Listo','Analizado con '+esc(data.modelo||'Gemini')+'. Revisa los textos antes de generar nada.');
+      paso(100,'Listo','Analizado con '+esc(data.modelo||'Gemini')+(data.segundos?' en '+data.segundos+' s':'')+'. Revisa los textos antes de generar nada.');
       setTimeout(function(){prog.hidden=true;},2500);
       go(2);
     }catch(e){ console.error('[analizar]',e); paso(100,'No se pudo analizar',esc(e.message||String(e)),true); }

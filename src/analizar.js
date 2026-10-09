@@ -17,7 +17,11 @@
  */
 
 const API = 'https://generativelanguage.googleapis.com';
-const MAX_INLINE = 18 * 1024 * 1024; // sobre esto, va por la Files API
+// Un audio incrustado hay que pasarlo a base64 dentro del Worker, y eso es
+// cálculo puro: con decenas de MB se come el presupuesto de CPU y tarda.
+// Por encima de este tamaño se sube en streaming por la Files API, que no
+// consume CPU porque solo reenvía bytes.
+const MAX_INLINE = 4 * 1024 * 1024;
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
@@ -143,8 +147,8 @@ async function subir(env, file) {
   let { file: f } = await up.json();
 
   // El archivo queda PROCESSING un rato; hay que esperar a ACTIVE.
-  for (let i = 0; i < 30 && f.state === 'PROCESSING'; i++) {
-    await new Promise((r) => setTimeout(r, 1500));
+  for (let i = 0; i < 40 && f.state === 'PROCESSING'; i++) {
+    await new Promise((r) => setTimeout(r, i < 6 ? 400 : 1200));
     const g = await fetch(`${API}/v1beta/${f.name}?key=${env.GEMINI_API_KEY}`);
     f = await g.json();
   }
@@ -226,9 +230,18 @@ export async function analizar(request, env) {
       ejemplos: JSON.parse(form.get('ejemplos') || '[]'),
     };
 
-    const partes = [{ text: prompt(meta) }];
-    for (const a of audios) partes.push(a.size > MAX_INLINE ? await subir(env, a) : await inline(a));
-    for (const f of fotos) partes.push(await inline(f));
+    const t0 = Date.now();
+    // Los audios son lo pesado: van en paralelo, no uno después del otro.
+    const [partesAudio, partesFoto] = await Promise.all([
+      Promise.all(audios.map((a) => (a.size > MAX_INLINE ? subir(env, a) : inline(a)))),
+      Promise.all(fotos.map((f) => inline(f))),
+    ]);
+    const tSubida = Date.now() - t0;
+    const partes = [{ text: prompt(meta) }, ...partesAudio, ...partesFoto];
+    console.log(
+      `[analizar] ${audios.length} audio(s) ${Math.round(audios.reduce((s2, a) => s2 + a.size, 0) / 1048576)}MB + ` +
+        `${fotos.length} foto(s) · preparado en ${(tSubida / 1000).toFixed(1)}s`,
+    );
 
     const modelos = await candidatos(env);
     const cuerpo = {
@@ -246,7 +259,9 @@ export async function analizar(request, env) {
         ].map((category) => ({ category, threshold: 'BLOCK_ONLY_HIGH' })),
     };
 
+    const t1 = Date.now();
     const res = await generar(env, modelos, cuerpo);
+    console.log(`[analizar] Gemini respondió en ${((Date.now() - t1) / 1000).toFixed(1)}s`);
     if (res.error) {
       const { status, msg } = res.error;
       const texto =
@@ -287,7 +302,7 @@ export async function analizar(request, env) {
       console.log('[analizar] JSON inválido', texto.slice(0, 500));
       return json({ error: 'Gemini no devolvió un JSON válido', detalle: texto.slice(0, 300) }, 502);
     }
-    return json({ ok: true, modelo: model, caso });
+    return json({ ok: true, modelo: model, caso, segundos: Math.round((Date.now() - t0) / 100) / 10 });
   } catch (e) {
     console.log('[analizar] excepción', e && (e.stack || e.message || String(e)));
     return json({ error: e.message || String(e) }, 500);
