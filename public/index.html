@@ -1148,8 +1148,11 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   document.addEventListener('pointerup',endDrag);document.addEventListener('pointercancel',endDrag);
 
   /* ── carpeta del paciente: audios + fotos reales ──────────────────── */
-  var AUDIO_RE=/\.(m4a|mp3|wav|ogg|aac|flac|opus|mp4a|caf|amr)$/i, IMG_RE=/\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/i;
-  var esAudio=function(f){return (f.type||'').startsWith('audio/')||AUDIO_RE.test(f.name);};
+  /* Las grabaciones de teléfono llegan en muchos envases: algunas son de
+     video aunque solo interese la voz. Gemini lee la pista de audio igual. */
+  var AUDIO_RE=/\.(m4a|m4b|mp3|mpga|wav|wave|ogg|oga|aac|flac|opus|mp4a|caf|amr|aif|aiff|wma|3gp|3gpp|mp4|m4v|mov|webm|mkv|avi)$/i;
+  var IMG_RE=/\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?|avif)$/i;
+  var esAudio=function(f){var t=(f.type||'');return t.startsWith('audio/')||t.startsWith('video/')||AUDIO_RE.test(f.name);};
   var esFoto =function(f){return (f.type||'').startsWith('image/')||IMG_RE.test(f.name);};
   var mmss=function(s){s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
   var mb=function(b){return b>=1048576?(b/1048576).toFixed(1).replace('.',',')+' MB':Math.round(b/1024)+' KB';};
@@ -1291,11 +1294,18 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       if(!audios[k].dur){audios[k].dur=await duracion(audios[k].f);pintaInventario(ign);}
     }
 
+    if(ign.length){
+      aviso(ign.length+(ign.length===1?' archivo quedó fuera':' archivos quedaron fuera'),
+        'No parecen audio ni imagen: '+ign.slice(0,4).join(', ')+(ign.length>4?' y '+(ign.length-4)+' más':'')+
+        '. Si alguno es la grabación de la consulta, dime la extensión y la agrego.',true);
+    }
     if(ilegibles.length){
       aviso(ilegibles.length+(ilegibles.length===1?' foto no se pudo leer':' fotos no se pudieron leer'),
         'El navegador no reconoce ese formato (suele pasar con HEIC de iPhone). Expórtalas como JPG y vuelve a soltarlas: '+ilegibles.slice(0,3).join(', '),true);
     }
     var leidas=Object.keys(photos).length;
+    console.log('[carpeta] recibidos:',lista.length,'· audios:',aud.map(function(f){return f.name;}),
+                '· fotos:',fot.length,'· ignorados:',ign,'· repetidos:',repetidos);
     document.getElementById('drop-s').innerHTML=audios.length+' audio'+(audios.length===1?'':'s')+' · '+leidas+' foto'+(leidas===1?'':'s')+
       (ilegibles.length?' · '+ilegibles.length+' ilegible'+(ilegibles.length===1?'':'s'):'')+
       (repetidos?' · '+repetidos+' repetid'+(repetidos===1?'o omitido':'os omitidos'):'')+

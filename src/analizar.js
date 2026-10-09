@@ -164,10 +164,11 @@ async function inline(file) {
 }
 
 /* ── 4. El prompt ────────────────────────────────────────────────────── */
-function prompt({ nombre, edad, notas, fotos, ejemplos }) {
+function prompt({ nombre, edad, notas, fotos, ejemplos, nAudios }) {
   return `Eres el asistente de Naran Estudio Dental. Recibes la grabación completa de la primera consulta (uno o más audios en orden) y las fotos clínicas del paciente.
 
 PACIENTE: ${nombre || '(sin nombre)'}${edad ? `, ${edad} años` : ''}.
+GRABACIONES ADJUNTAS: ${nAudios}. Son partes consecutivas de la MISMA consulta, en orden. Escúchalas TODAS y trátalas como una sola conversación continua: la transcripción debe cubrir de principio a fin, numerando en "audio" de 1 a ${nAudios} según de cuál provenga cada línea. No te detengas al terminar la primera.
 ${notas ? `NOTAS DEL DENTISTA: ${notas}\n` : ''}
 ARCHIVOS DE FOTO, en este orden: ${fotos.map((f, i) => `[${i}] ${f}`).join(', ') || '(ninguna)'}.
 
@@ -228,6 +229,7 @@ export async function analizar(request, env) {
       notas: form.get('notas') || '',
       fotos: fotos.map((f) => f.name),
       ejemplos: JSON.parse(form.get('ejemplos') || '[]'),
+      nAudios: audios.length,
     };
 
     const t0 = Date.now();
