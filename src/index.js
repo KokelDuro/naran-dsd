@@ -5,6 +5,7 @@
  * ASSETS). Lo que no calza con un archivo llega acá: solo /api/*.
  */
 import { analizar, urlDeSubida } from './analizar.js';
+import { dentalink } from './dentalink.js';
 import { salud } from './salud.js';
 
 const json = (obj, status = 200) =>
@@ -25,6 +26,7 @@ export default {
           ? { url: env.SUPABASE_URL, anon: env.SUPABASE_ANON_KEY }
           : null,
         clave: !env.SUPABASE_URL && !!env.CLAVE_PRUEBA,
+        dentalink: !!env.DENTALINK_TOKEN,
       });
     }
 
@@ -34,6 +36,10 @@ export default {
 
     if (pathname === '/api/subida') {
       return request.method === 'POST' ? urlDeSubida(request, env) : json({ error: 'Usa POST' }, 405);
+    }
+
+    if (pathname.startsWith('/api/dentalink')) {
+      return request.method === 'GET' ? dentalink(request, env, pathname) : json({ error: 'Usa GET' }, 405);
     }
 
     if (pathname === '/api/analizar') {

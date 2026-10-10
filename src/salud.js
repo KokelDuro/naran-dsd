@@ -5,6 +5,7 @@ export async function salud(env) {
     supabase_url: !!env.SUPABASE_URL,
     supabase_anon: !!env.SUPABASE_ANON_KEY,
     clave_prueba: !!env.CLAVE_PRUEBA,
+    dentalink_token: !!env.DENTALINK_TOKEN,
     modelo_fijado: env.GEMINI_MODEL || '(automático)',
   };
   let modelos = null;

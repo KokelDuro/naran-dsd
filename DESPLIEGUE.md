@@ -103,6 +103,29 @@ y en el panel (Settings → Variables and Secrets) agrega como texto normal:
 
 Para probar localmente antes de publicar: `npx wrangler dev`.
 
+### Conectar Dentalink (opcional)
+
+Mientras no esté el token, la página funciona igual que siempre: el presupuesto
+se lee del PDF. Al cargarlo, aparece la tarjeta «Desde Dentalink» en el paso 4 y
+el presupuesto se trae solo con el RUT del paso 1.
+
+El token se genera en Dentalink: Administrador → Configuración API → Agregar
+cliente → Ver token → Generar. Los permisos se asignan por token y los nuevos
+no se agregan solos a un token ya creado.
+
+```bash
+npx wrangler secret put DENTALINK_TOKEN
+```
+
+Con esto basta para **leer** (pacientes, planes y presupuestos). Crear o
+modificar presupuestos necesitaría además permisos de escritura, y hoy el
+Worker no escribe nada.
+
+Para comprobar que el token sirve, con la sesión iniciada:
+`https://naran-dsd.<tu-subdominio>.workers.dev/api/dentalink/prueba`
+Devuelve cuántos pacientes ve y una ficha de muestra. Si responde
+«No tiene autorizacion», el token o sus permisos están mal.
+
 ### Comprobar que quedó bien
 
 Abre `https://naran-dsd.<tu-subdominio>.workers.dev/api/salud`. Devuelve qué está configurado (sin mostrar ningún valor) y la lista de modelos Gemini que acepta tu key. Si `gemini_key` sale en `false`, el secreto no quedó cargado.

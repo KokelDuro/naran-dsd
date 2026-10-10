@@ -560,6 +560,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
         <div class="fields">
           <div class="field"><label for="f-nombre">Nombre</label><input class="in" id="f-nombre" placeholder="Nombre del paciente" autocomplete="off"></div>
           <div class="field"><label for="f-edad">Edad</label><input class="in" id="f-edad" type="number" placeholder="—" min="0" max="120"></div>
+          <div class="field"><label for="f-rut">RUT</label><input class="in" id="f-rut" placeholder="12.345.678-9" autocomplete="off" inputmode="text"></div>
           <div class="field"><label for="f-fecha">Consulta</label><input class="in" id="f-fecha" type="date"></div>
         </div>
       </section>
@@ -771,8 +772,17 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     </div>
     <div class="prop">
       <div class="stack">
+        <section class="card" id="dl-card" hidden>
+          <div class="card-h"><h2>Desde Dentalink</h2><span class="pill" id="dl-state">—</span></div>
+          <p class="hint" id="dl-hint">Se busca al paciente con el RUT y el nombre del paso 1, y se trae su presupuesto tal como está en la ficha.</p>
+          <div id="dl-elige" hidden style="display:grid;gap:10px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button class="btn ghost" type="button" id="dl-buscar" style="padding:10px 16px">Buscar el presupuesto</button>
+            <small style="font-size:12px;color:var(--muted)" id="dl-nota"></small>
+          </div>
+        </section>
         <section class="card">
-          <div class="card-h"><h2>Presupuesto Dentalink</h2><span class="pill" id="pdf-state">Sin PDF</span></div>
+          <div class="card-h"><h2>Presupuesto en PDF</h2><span class="pill" id="pdf-state">Sin PDF</span></div>
           <p class="hint">Suelta aquí el PDF que exporta Dentalink. Se leen prestaciones, piezas, estados y precios ya con descuento. La fase se elige de la lista: las categorías del propio presupuesto vienen cargadas.</p>
           <div class="drop" id="pdf-drop" style="padding:18px 22px">
             <span class="fi" style="width:46px;height:46px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span>
@@ -1098,7 +1108,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     return d;
   }
   async function guardarCaso(estado){
-    var caso={id:casoActual&&casoActual.id,nombre:(val('f-nombre')||'').trim()||'Sin nombre',edad:val('f-edad'),
+    var caso={id:casoActual&&casoActual.id,nombre:(val('f-nombre')||'').trim()||'Sin nombre',edad:val('f-edad'),rut:val('f-rut'),
               fecha:val('f-fecha'),estado:estado||'revisado',datos:datosActuales()};
     var id=await Store.guardar(caso);
     casoActual={id:id,nombre:caso.nombre};
@@ -1109,6 +1119,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     casoActual={id:c.id,nombre:c.nombre};
     document.getElementById('f-nombre').value=c.nombre||'';
     document.getElementById('f-edad').value=c.edad||'';
+    var elRut=document.getElementById('f-rut'); if(elRut)elRut.value=c.rut||'';
     document.getElementById('f-fecha').value=c.fecha||'';
     var d=c.datos||{};
     IDS_TXT.forEach(function(id){var el=document.getElementById(id);if(el&&d[id]!=null)el.value=d[id];});
@@ -1475,7 +1486,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function estadoInicial(nuevo){
     var f=document.getElementById('f-fecha'); if(f&&(nuevo||!f.value))f.value=hoy();
     if(nuevo){
-      ['f-nombre','f-edad','f-notas'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+      ['f-nombre','f-edad','f-rut','f-notas'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+      dlReiniciar();
       /* propuesta: sin presupuesto cargado */
       prest.length=0; for(var k in faseOff)delete faseOff[k];
       window.propReady=false;
@@ -1582,6 +1594,17 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     document.getElementById('prog-t').textContent=titulo;
     document.getElementById('prog-s').innerHTML=sub||'';
   }
+  /* La sesión que acompaña a cada llamada al Worker. */
+  async function cabeceras(){
+    var c={};
+    if(window.SB){
+      var ss=await window.SB.auth.getSession();
+      if(ss.data&&ss.data.session)c.authorization='Bearer '+ss.data.session.access_token;
+    }
+    if(!c.authorization)c['x-clave']=clave();
+    return c;
+  }
+
   function clave(){
     var c=null; try{c=localStorage.getItem('naran-clave');}catch(e){}
     if(!c){
@@ -1598,15 +1621,6 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     try{
       /* Subida directa a Google: el audio viaja una sola vez. Si algo falla
          (red, CORS, permisos), se manda por el camino de siempre. */
-      async function cabeceras(){
-        var c={};
-        if(window.SB){
-          var ss=await window.SB.auth.getSession();
-          if(ss.data&&ss.data.session)c.authorization='Bearer '+ss.data.session.access_token;
-        }
-        if(!c.authorization)c['x-clave']=clave();
-        return c;
-      }
       async function subirDirecto(file,cab){
         var r=await fetch('/api/subida',{method:'POST',headers:Object.assign({'content-type':'application/json'},cab),
           body:JSON.stringify({nombre:file.name,tamano:file.size,tipo:file.type||'audio/mpeg'})});
@@ -1670,6 +1684,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       }
       paso(95,'Escribiendo los documentos…','');
       aplicarCaso(data.caso||{});
+      if(window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();
       paso(100,'Listo','Analizado con '+esc(data.modelo||'Gemini')+(data.segundos?' en '+data.segundos+' s':'')+'. Revisa los textos antes de generar nada.');
       setTimeout(function(){prog.hidden=true;},2500);
       go(2);
@@ -1754,6 +1769,148 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   document.getElementById('add-row').addEventListener('click',function(){prest.push(['','',0,'']);renderTable();renderTotals();tb.querySelector('tr:last-child input').focus();});
   ['p-dscto','p-cuotas','p-pie','p-int'].forEach(function(id){document.getElementById(id).addEventListener('input',renderTotals);});
 
+  /* ── El presupuesto, traído de Dentalink ───────────────────────────
+   * El RUT y el nombre ya los escribiste en el paso 1. Apenas termina el
+   * análisis la página sale a buscar sola, mientras sigues en Textos y
+   * Láminas; cuando llegas aquí el presupuesto ya está puesto. Si algo
+   * falla, el PDF de abajo sigue funcionando igual que siempre.
+   */
+  var cfgApp={};
+  var DL={paciente:null,tratamiento:null,buscando:false,hecho:false};
+
+  function dlEstado(texto,clase){
+    var p=document.getElementById('dl-state'); if(!p)return;
+    p.className='pill'+(clase?' '+clase:'');
+    p.innerHTML=(clase==='ok'||clase==='warn'?'<span class="d"></span>':'')+esc(texto);
+  }
+  function dlNota(texto){var e=document.getElementById('dl-nota'); if(e)e.textContent=texto||'';}
+  function dlReiniciar(){
+    DL={paciente:null,tratamiento:null,buscando:false,hecho:false};
+    var e=document.getElementById('dl-elige'); if(e){e.hidden=true;e.innerHTML='';}
+    dlEstado('—'); dlNota('');
+  }
+
+  async function dlPedir(ruta){
+    var cab=await cabeceras();
+    var r=await fetch('/api/dentalink'+ruta,{headers:cab});
+    var j={}; try{ j=await r.json(); }catch(e){}
+    if(!r.ok)throw new Error(j.error||('Dentalink no respondió (error '+r.status+')'));
+    return j;
+  }
+
+  /* Cuando hay más de un candidato, se elige una vez y no se pregunta más. */
+  function dlOpciones(titulo,filas,alElegir){
+    var caja=document.getElementById('dl-elige');
+    caja.innerHTML='<small style="font-size:12px;color:var(--muted)">'+esc(titulo)+'</small>'+
+      filas.map(function(f,i){
+        return '<button class="btn ghost" type="button" data-dl="'+i+'" style="justify-content:space-between;padding:10px 14px;text-align:left">'+
+          '<span>'+esc(f.titulo)+'</span><small style="font-size:11.5px;color:var(--muted)">'+esc(f.detalle||'')+'</small></button>';
+      }).join('');
+    caja.hidden=false;
+    caja.onclick=function(e){
+      var b=e.target.closest('[data-dl]'); if(!b)return;
+      caja.hidden=true; caja.innerHTML=''; caja.onclick=null;
+      alElegir(filas[+b.dataset.dl].valor);
+    };
+  }
+
+  async function dlBuscar(manual){
+    if(!cfgApp.dentalink||DL.buscando)return;
+    var rut=(val('f-rut')||'').trim(), nombre=(val('f-nombre')||'').trim();
+    if(!rut&&!nombre){
+      if(manual)dlEstado('Falta el RUT','warn'),dlNota('Escribe el RUT o el nombre del paciente en el paso 1.');
+      return;
+    }
+    DL.buscando=true; dlEstado('Buscando…'); dlNota('');
+    try{
+      var p=await dlPedir('/paciente?rut='+encodeURIComponent(rut)+'&nombre='+encodeURIComponent(nombre));
+      var gente=p.pacientes||[];
+      if(!gente.length){
+        dlEstado('Sin resultados','warn');
+        dlNota('No encontré a ese paciente en Dentalink. Revisa el RUT del paso 1 o usa el PDF.');
+        return;
+      }
+      if(gente.length>1){
+        dlEstado('Varios pacientes');
+        dlNota('Hay más de uno que calza con ese nombre.');
+        dlOpciones('¿Cuál es?',gente.map(function(g){
+          return {titulo:g.nombre||'(sin nombre)',detalle:[g.rut,g.nacimiento].filter(Boolean).join(' · '),valor:g};
+        }),dlConPaciente);
+        return;
+      }
+      await dlConPaciente(gente[0]);
+    }catch(e){
+      dlEstado('No se pudo','warn'); dlNota(e.message);
+    }finally{ DL.buscando=false; }
+  }
+
+  async function dlConPaciente(pac){
+    DL.paciente=pac;
+    dlEstado('Buscando el plan…'); dlNota(pac.nombre+(pac.rut?' · '+pac.rut:''));
+    try{
+      var t=await dlPedir('/tratamientos?paciente='+encodeURIComponent(pac.id));
+      var planes=(t.tratamientos||[]).filter(function(x){return !x.finalizado;});
+      if(!planes.length)planes=t.tratamientos||[];
+      if(!planes.length){
+        dlEstado('Sin presupuesto','warn');
+        dlNota(pac.nombre+' no tiene planes de tratamiento cargados.');
+        return;
+      }
+      if(planes.length>1){
+        dlEstado('Varios planes');
+        dlOpciones('¿Qué plan quieres cotizar?',planes.map(function(x){
+          return {titulo:x.nombre,detalle:[x.fecha,x.total?clp(x.total):''].filter(Boolean).join(' · '),valor:x};
+        }),dlConPlan);
+        return;
+      }
+      await dlConPlan(planes[0]);
+    }catch(e){ dlEstado('No se pudo','warn'); dlNota(e.message); }
+  }
+
+  async function dlConPlan(plan){
+    DL.tratamiento=plan;
+    dlEstado('Trayendo el presupuesto…');
+    try{
+      var d=await dlPedir('/presupuesto?tratamiento='+encodeURIComponent(plan.id));
+      dlAplicar(d,plan);
+    }catch(e){ dlEstado('No se pudo','warn'); dlNota(e.message); }
+  }
+
+  /* Deja los datos en la misma forma que usa la tabla: así todo lo que ya
+     funciona (fases, totales, láminas, PDF de salida) sirve sin tocarlo. */
+  function dlAplicar(d,plan){
+    var filas=d.prestaciones||[];
+    prest=filas.map(function(x){
+      return [x.nombre, x.pieza||'—', x.total||0, x.realizada?'':(x.seccion||''),
+              x.estado||'', x.precio||0, x.descuento||0];
+    });
+    grupos=[]; var vistas={};
+    (d.secciones||[]).forEach(function(sx){ if(sx.nombre&&!vistas[sx.nombre]){vistas[sx.nombre]=true;grupos.push(sx.nombre);} });
+    filas.forEach(function(x){ if(x.seccion&&!vistas[x.seccion]){vistas[x.seccion]=true;grupos.push(x.seccion);} });
+
+    var r=d.resumen||{}, sub=filas.reduce(function(a,x){return a+(x.precio||0);},0);
+    var tot=r.total||filas.reduce(function(a,x){return a+(x.total||0);},0);
+    resumenPDF={subtotal:sub,descuento:Math.max(0,sub-tot),total:tot,abonos:r.abonado||0,porPagar:r.deuda||0};
+
+    faseOff={};
+    prest.forEach(function(x){ if(/altern|opcional/i.test(x[3]))faseOff[x[3]]=true; });
+
+    document.getElementById('pdf-out').hidden=false;
+    fuentePresupuesto='ficha';
+    renderTable(); renderTotals(); pintaResumenPDF();
+    DL.hecho=true;
+    dlEstado('Listo · '+prest.length+' prestaciones','ok');
+    dlNota((DL.paciente?DL.paciente.nombre+' · ':'')+plan.nombre+(plan.fecha?' · '+plan.fecha:'')+
+           (d.aviso?' — sin secciones: '+d.aviso:''));
+    document.getElementById('pdf-note').textContent='Traído de Dentalink. Edita cualquier celda si quieres presentarlo distinto; no se modifica la ficha.';
+    setState('Desde Dentalink · '+prest.length+' prestaciones','ok');
+  }
+
+  window.dlAlTerminarAnalisis=function(){ if(cfgApp.dentalink&&!DL.hecho)dlBuscar(false); };
+
+  var dlBtn=document.getElementById('dl-buscar');
+  if(dlBtn)dlBtn.addEventListener('click',function(){ DL.hecho=false; dlReiniciar(); dlBuscar(true); });
+
   /* lectura del PDF en el navegador (pdf.js). Heurística: cada línea que termina en un monto = una prestación. */
   var PDFJS=window.pdfjsLib;
   if(PDFJS)PDFJS.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -1767,6 +1924,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var PIEZA=/^(-|—|[1-8]\.[1-8](?:\s*[,/·-]\s*[1-8]\.[1-8])*)$/;
   var grupos=[];               /* categorías encontradas en el PDF */
   var resumenPDF=null;         /* totales que trae el propio documento */
+  var fuentePresupuesto='PDF';  /* de dónde salieron: el PDF o la ficha */
 
   function plata(t){var m=String(t).replace(/[^\d]/g,'');return m?parseInt(m,10):0;}
 
@@ -1855,6 +2013,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var lines=[];
       contents.forEach(function(tc){var by={};tc.items.forEach(function(it){if(!it.str.trim())return;var y=Math.round(it.transform[5]/3)*3;(by[y]=by[y]||[]).push(it);});
         Object.keys(by).map(Number).sort(function(a,b){return b-a;}).forEach(function(y){lines.push(by[y].sort(function(a,b){return a.transform[4]-b.transform[4];}).map(function(i){return i.str;}).join(' ').replace(/\s+/g,' ').trim());});});
+      fuentePresupuesto='PDF';
       prest=parseLines(lines);faseOff={};prest.forEach(function(r){if(/altern|opcional/i.test(r[3]))faseOff[r[3]]=true;});  /* la alternativa se cotiza aparte */
       document.getElementById('pdf-out').hidden=false;renderTable();renderTotals();
       var conFase=prest.filter(function(r){return r[3];}).length;document.getElementById('pdf-sub').textContent=(prest.length?prest.length+' prestaciones detectadas'+(conFase?', '+conFase+' con fase leída del PDF':'')+'. Revisa nombres, precios y fases.':'No encontré líneas con precio. Agrega las prestaciones a mano o prueba con otro PDF.')+' Suelta otro PDF para reemplazar.';
@@ -1879,7 +2038,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var leido=prest.reduce(function(a,x){return a+(x[2]||0);},0);
     if(r.total&&Math.abs(leido-r.total)>1)
       dato.push('<span style="color:var(--warn)">Lo leído suma '+clp(leido)+': revisa la tabla</span>');
-    box.innerHTML='Según el PDF · '+dato.join(' · ');
+    box.innerHTML='Según '+(fuentePresupuesto==='ficha'?'la ficha de Dentalink':'el PDF')+' · '+dato.join(' · ');
     box.hidden=false;
   }
 
@@ -2609,7 +2768,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(n>0){lastStep=n;tabs.forEach(function(t,i){t.setAttribute('aria-selected',i+1===n);t.classList.toggle('done',i+1<n);});moveInd(n);}
     else tabs.forEach(function(t){t.setAttribute('aria-selected',false);});
     [0,1,2,3,4,5].forEach(function(i){document.getElementById('s'+i).hidden=(i!==n);});
-    var sc=document.getElementById('s'+n);window.scrollTo({top:0});if(scrAnim)scrAnim.stop();if(window.refreshPreviews)refreshPreviews();if(n===2&&window.growAll2)growAll2();if(n===5&&window.refreshFiles)refreshFiles();
+    var sc=document.getElementById('s'+n);window.scrollTo({top:0});if(scrAnim)scrAnim.stop();if(window.refreshPreviews)refreshPreviews();if(n===2&&window.growAll2)growAll2();if(n===4&&window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();if(n===5&&window.refreshFiles)refreshFiles();
     scrAnim=spring({from:0,to:1,response:.4,onUpdate:function(p){sc.style.opacity=p;sc.style.transform='translateY('+((1-p)*14*dir)+'px)';},onDone:function(){sc.style.transform='';}});
   }
   document.querySelectorAll('[data-go]').forEach(function(b){b.addEventListener('click',function(){if(!b.disabled)go(+b.dataset.go);});});
@@ -2726,6 +2885,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   async function iniciarSesion(){
     var cfg={};
     try{ cfg=await (await fetch('/api/config')).json(); }catch(e){}
+    cfgApp=cfg;
+    var dlc=document.getElementById('dl-card');
+    if(dlc&&cfg.dentalink){dlc.hidden=false;dlEstado('Sin buscar');}
     if(!cfg.supabase||!window.supabase){
       /* sin Supabase: el historial vive en este equipo */
       Store.modo='local'; gate.hidden=true; mostrarUsuario(null); await cargarCasos(); return;

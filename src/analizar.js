@@ -35,7 +35,7 @@ const json = (obj, status = 200) =>
  * carga como secreto CLAVE_PRUEBA. Sin ninguna de las dos, no se atiende:
  * así nadie que encuentre la URL puede gastar la cuota de Gemini.
  */
-async function autorizado(request, env) {
+export async function autorizado(request, env) {
   if (env.SUPABASE_URL && env.SUPABASE_ANON_KEY) {
     const auth = request.headers.get('authorization') || '';
     if (!auth.toLowerCase().startsWith('bearer ')) return { ok: false, motivo: 'Necesitas iniciar sesión' };
