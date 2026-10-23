@@ -3053,17 +3053,28 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     return IDS_TXT.some(function(id){var el=document.getElementById(id);return el&&el.value.trim();});
   }
   async function nuevoCaso(preguntar){
+    var guardado=false;
     if(preguntar&&hayTrabajo()){
-      var ok=await confirmar('Empezar un caso nuevo',
-        'Se vacían los audios, las fotos y todos los textos de este caso. Lo que ya guardaste en el historial y los archivos que descargaste no se tocan.',
-        'Vaciar y empezar');
-      if(!ok)return false;
+      /* Preguntar solo cuando se pierde algo. Si el caso ya está en el
+         historial, se guarda lo último y se sigue de largo: no hay nada
+         que advertir. */
+      if(casoActual){
+        try{ await guardarBorrador(true); guardado=true; }
+        catch(e){ console.warn('[nuevo caso]',e); }
+      }
+      if(!guardado){
+        var ok=await confirmar('Empezar un caso nuevo',
+          'Este caso todavía no está en el historial: se van los audios, las fotos y los textos. Lo que ya guardaste y los archivos que descargaste no se tocan.',
+          'Vaciar y empezar');
+        if(!ok)return false;
+      }
     }
     docsGenerados={};
     verHistorial();
     estadoInicial(true);
     go(1);
-    aviso('Listo para el siguiente paciente','La página quedó en blanco.');
+    aviso('Listo para el siguiente paciente',
+          guardado?'El caso anterior quedó guardado en el historial.':'La página quedó en blanco.');
     return true;
   }
 
