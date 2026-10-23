@@ -126,6 +126,11 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .gate-box{will-change:transform}
 @media (prefers-reduced-motion:reduce){.g-desliza{transition:opacity .01ms}#gate-sub,#g-btn span{transition:none}}
 .gate-err{padding:12px 14px;border-radius:12px;box-shadow:var(--in-s);color:var(--warn);font-size:12.5px;white-space:pre-wrap;line-height:1.5;user-select:text}
+.gate-err.ok{color:var(--ok)}
+.g-link{background:none;border:0;box-shadow:none;padding:4px;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer;text-align:center}
+.g-link:hover{color:var(--ink);text-decoration:underline}
+button.usuario{border:0;background:none;box-shadow:none;font:inherit;cursor:pointer;border-radius:10px;padding:4px 6px}
+button.usuario:hover{color:var(--ink)}
 .usuario{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
 .usuario .rol{padding:3px 9px;border-radius:999px;box-shadow:var(--in-s);font-size:11px;color:var(--brand)}
 .pager{display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap}
@@ -492,7 +497,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       <button role="tab" data-go="4" aria-selected="false"><span class="k">4</span><span class="t">Propuesta</span></button>
       <button role="tab" data-go="5" aria-selected="false"><span class="k">5</span><span class="t">Entrega</span></button>
     </nav>
-    <div class="bar-r"><span class="usuario" id="usuario" hidden><span id="u-nombre"></span><span class="rol" id="u-rol"></span></span><button class="icn" id="btn-salir" hidden aria-label="Cerrar sesión" title="Cerrar sesión"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+    <div class="bar-r"><button class="usuario" id="usuario" type="button" hidden title="Cambiar mi contraseña"><span id="u-nombre"></span><span class="rol" id="u-rol"></span></button><button class="icn" id="btn-salir" hidden aria-label="Cerrar sesión" title="Cerrar sesión"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
 <button class="icn" id="btn-borrador" aria-label="Guardar borrador" title="Guardar borrador"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></button>
       <button class="icn" id="go-hist" data-go="0" aria-label="Historial" title="Historial"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 7v5l3 2"/></svg></button></div>
   </div>
@@ -937,6 +942,20 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     <div class="g-desliza" id="g-nombre-campo"><div><div class="field" style="padding-top:14px"><label for="g-nombre">Tu nombre</label><input class="in" id="g-nombre" autocomplete="name" placeholder="Como quieres que aparezca en la app"></div></div></div>
     <div class="gate-err" id="gate-err" hidden></div>
     <button class="btn" id="g-btn" type="submit" style="justify-content:center"><span>Entrar</span></button>
+    <button type="button" id="g-olvide" class="g-link">¿Olvidaste tu contraseña?</button>
+  </form>
+</div>
+
+<div class="gate" id="clave" hidden>
+  <form class="gate-box card" id="clave-form" autocomplete="on">
+    <span class="logo" role="img" aria-label="Naran Estudio Dental"></span>
+    <h2 id="clave-t">Cambiar mi contraseña</h2>
+    <p class="hint" id="clave-sub">Elige una de al menos 8 caracteres. La escribes tú; nadie más la ve.</p>
+    <div class="field"><label for="c-pass">Contraseña nueva</label><input class="in" id="c-pass" type="password" autocomplete="new-password" required minlength="8"></div>
+    <div class="field"><label for="c-pass2">Repítela</label><input class="in" id="c-pass2" type="password" autocomplete="new-password" required minlength="8"></div>
+    <div class="gate-err" id="clave-err" hidden></div>
+    <button class="btn" id="c-btn" type="submit" style="justify-content:center"><span>Guardar contraseña</span></button>
+    <button type="button" id="c-cerrar" class="g-link">Cancelar</button>
   </form>
 </div>
 
@@ -3214,6 +3233,71 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     el.style.height=(abrir?el.firstElementChild.getBoundingClientRect().height:0)+'px';
   }
 
+  /* ── La contraseña la maneja cada persona ───────────────────────────
+   * Entras, la cambias, y nadie más la ve: ni el administrador de la
+   * clínica ni esta página. Si se olvida, Supabase manda un correo con
+   * un enlace que trae de vuelta acá con sesión de recuperación.
+   */
+  var cajaClave=document.getElementById('clave'),
+      formClave=document.getElementById('clave-form'),
+      modoClave='cambiar';   /* 'cambiar' = ya entró · 'recuperar' = llegó por correo */
+
+  function errClave(msg,bien){
+    var e=document.getElementById('clave-err');
+    e.hidden=!msg; e.textContent=msg||''; e.classList.toggle('ok',!!bien);
+  }
+  function abrirClave(modo){
+    modoClave=modo||'cambiar';
+    document.getElementById('clave-t').textContent=
+      modoClave==='recuperar'?'Elige una contraseña nueva':'Cambiar mi contraseña';
+    document.getElementById('clave-sub').textContent=
+      modoClave==='recuperar'?'Llegaste desde el correo de recuperación. Escribe la que vas a usar de ahora en adelante.'
+                             :'Elige una de al menos 8 caracteres. La escribes tú; nadie más la ve.';
+    document.getElementById('c-cerrar').hidden=(modoClave==='recuperar');
+    document.getElementById('c-pass').value='';
+    document.getElementById('c-pass2').value='';
+    errClave('');
+    cajaClave.hidden=false;
+    setTimeout(function(){document.getElementById('c-pass').focus();},60);
+  }
+  function cerrarClave(){ cajaClave.hidden=true; errClave(''); }
+  document.getElementById('c-cerrar').addEventListener('click',cerrarClave);
+  document.getElementById('usuario').addEventListener('click',function(){
+    if(window.SB)abrirClave('cambiar');
+  });
+
+  formClave.addEventListener('submit',async function(e){
+    e.preventDefault();
+    if(!window.SB){ errClave('Esta página no está conectada a Supabase.'); return; }
+    var p1=document.getElementById('c-pass').value, p2=document.getElementById('c-pass2').value;
+    if(p1.length<8){ errClave('Usa al menos 8 caracteres.'); return; }
+    if(p1!==p2){ errClave('Las dos no coinciden.'); return; }
+    var b=document.getElementById('c-btn'), txt=b.querySelector('span').textContent;
+    b.disabled=true; b.querySelector('span').textContent='Guardando…'; errClave('');
+    var r=await window.SB.auth.updateUser({password:p1});
+    b.disabled=false; b.querySelector('span').textContent=txt;
+    if(r.error){ errClave(traduceAuth(r.error.message)); return; }
+    errClave('Contraseña cambiada. Ya puedes usarla.',true);
+    setTimeout(function(){
+      cerrarClave();
+      if(modoClave==='recuperar'){ gate.hidden=true; sesionLista(); }
+      else aviso('Contraseña cambiada','La nueva queda activa en este y en los demás equipos.');
+    },1200);
+  });
+
+  /* ── Olvidé mi contraseña ──────────────────────────────────────────── */
+  document.getElementById('g-olvide').addEventListener('click',async function(){
+    if(!window.SB){ errGate('Esta página todavía no está conectada a Supabase.'); return; }
+    var correo=(document.getElementById('g-mail').value||'').trim();
+    if(!correo){ errGate('Escribe tu correo arriba y vuelve a tocar aquí.'); document.getElementById('g-mail').focus(); return; }
+    var b=this, txt=b.textContent;
+    b.disabled=true; b.textContent='Enviando…'; errGate('');
+    var r=await window.SB.auth.resetPasswordForEmail(correo,{redirectTo:location.origin+location.pathname});
+    b.disabled=false; b.textContent=txt;
+    if(r.error){ errGate(traduceAuth(r.error.message)); return; }
+    errGate('Te mandamos un correo a '+correo+'.\nAbre el enlace desde este mismo equipo y te deja elegir una contraseña nueva.\n\nSi no llega en unos minutos, revisa el spam o pídele al administrador de la clínica que te la cambie desde Supabase.');
+  });
+
   function mostrarUsuario(perfil){
     var u=document.getElementById('usuario');
     if(!perfil){u.hidden=true;document.getElementById('btn-salir').hidden=true;return;}
@@ -3261,6 +3345,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(/password/i.test(m)&&/short|least/i.test(m))return 'La contraseña es muy corta: usa al menos 8 caracteres.';
     if(/Email not confirmed/i.test(m))return 'Tu correo todavía no está confirmado. El administrador puede confirmarlo desde Supabase → Authentication → Users.';
     if(/rate limit|too many/i.test(m))return 'Demasiados intentos seguidos. Espera un minuto y vuelve a probar.';
+    if(/same.*password|should be different/i.test(m))return 'Esa es la contraseña que ya tenías. Elige otra.';
+    if(/reauthentication|session.*expired|JWT/i.test(m))return 'Tu sesión expiró. Vuelve a entrar y cámbiala de nuevo.';
+    if(/Error sending|SMTP|email.*not.*sent/i.test(m))return 'La clínica todavía no tiene configurado el envío de correos en Supabase, así que no se puede recuperar por correo.\n\nPídele al administrador que te la cambie desde Supabase → Authentication → Users.';
     if(/Failed to fetch|NetworkError/i.test(m))return 'No hay conexión con el servidor de sesiones. Revisa tu internet y reintenta.';
     return m;
   }
@@ -3276,6 +3363,10 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       Store.modo='local'; gate.hidden=true; mostrarUsuario(null); await cargarCasos(); return;
     }
     window.SB=window.supabase.createClient(cfg.supabase.url,cfg.supabase.anon,{auth:{persistSession:true,autoRefreshToken:true}});
+    /* Si llega por el enlace del correo, Supabase avisa y se pide la nueva. */
+    window.SB.auth.onAuthStateChange(function(evento){
+      if(evento==='PASSWORD_RECOVERY'){ gate.hidden=true; abrirClave('recuperar'); }
+    });
     var ses=await window.SB.auth.getSession();
     if(ses.data&&ses.data.session){ await sesionLista(); }
     else { gate.hidden=false; document.getElementById('g-mail').focus(); }

@@ -103,6 +103,23 @@ y en el panel (Settings → Variables and Secrets) agrega como texto normal:
 
 Para probar localmente antes de publicar: `npx wrangler dev`.
 
+### Contraseñas
+
+Cada persona maneja la suya: entra, toca su nombre en la barra de arriba y
+elige otra. Nadie más la ve, tampoco el administrador.
+
+Si alguien la olvida hay dos caminos:
+
+1. **«¿Olvidaste tu contraseña?»** en la pantalla de acceso. Manda un correo
+   con un enlace que trae de vuelta a la página y deja elegir una nueva.
+   Depende del envío de correos de Supabase: el servicio incluido está muy
+   limitado (unos pocos correos por hora), así que para usarlo de verdad hay
+   que configurar un SMTP propio en Authentication → Emails.
+2. **Desde el panel**, que no depende del correo y es el camino fiable hoy:
+   Supabase → Authentication → Users → la persona → `Reset password`. Ahí
+   mismo se le puede poner una contraseña provisional y que la cambie al
+   entrar.
+
 ### Fotos y documentos compartidos
 
 Para que el ejecutivo vea las mismas fotos y los mismos PDF desde su equipo,
