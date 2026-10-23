@@ -73,8 +73,6 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .bar-in{max-width:1100px;margin:0 auto;padding:14px 24px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px}
 .bar .logo{width:120px}
 .bar-r{justify-self:end;display:flex;align-items:center;gap:10px}
-.bar-r .st{font-size:12px;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:7px}
-.bar-r .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
 .seg{position:relative;display:grid;grid-template-columns:repeat(5,auto);padding:5px;border-radius:18px;box-shadow:var(--in);gap:2px}
 .seg .ind{position:absolute;top:5px;left:5px;height:calc(100% - 10px);border-radius:13px;background:var(--bg);box-shadow:var(--up-xs);will-change:transform,width;pointer-events:none;transition:opacity .2s}
 .seg.none .ind{opacity:0}
@@ -494,7 +492,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       <button role="tab" data-go="4" aria-selected="false"><span class="k">4</span><span class="t">Propuesta</span></button>
       <button role="tab" data-go="5" aria-selected="false"><span class="k">5</span><span class="t">Entrega</span></button>
     </nav>
-    <div class="bar-r"><span class="usuario" id="usuario" hidden><span id="u-nombre"></span><span class="rol" id="u-rol"></span></span><span class="st"><span class="dot"></span>Gemini · gratis</span><button class="icn" id="btn-salir" hidden aria-label="Cerrar sesión" title="Cerrar sesión"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+    <div class="bar-r"><span class="usuario" id="usuario" hidden><span id="u-nombre"></span><span class="rol" id="u-rol"></span></span><button class="icn" id="btn-salir" hidden aria-label="Cerrar sesión" title="Cerrar sesión"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
 <button class="icn" id="btn-borrador" aria-label="Guardar borrador" title="Guardar borrador"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></button>
       <button class="icn" id="go-hist" data-go="0" aria-label="Historial" title="Historial"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 7v5l3 2"/></svg></button></div>
   </div>
