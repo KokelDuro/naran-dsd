@@ -1824,7 +1824,64 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
      por ejemplo) lo sabemos aquí y no al generar los archivos. De paso pesan
      menos, y tanto el PDF como el PPTX las reciben en un formato que
      PowerPoint entiende siempre. */
-  function normalizar(file){
+  /* Mira 64x64 píxeles de una imagen ya decodificada para adivinar si es
+     una radiografía. Antes esto abría el archivo de nuevo; ahora
+     aprovecha la misma decodificación que hizo normalizar(). */
+  function clasificaDeFuente(src,w,h){
+    try{
+      var c=document.createElement('canvas'),L=64; c.width=L; c.height=L;
+      var x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(src,0,0,L,L);
+      var d=x.getImageData(0,0,L,L).data, gris=0, tot=0, osc=0;
+      for(var i=0;i<d.length;i+=4){
+        var r=d[i],g=d[i+1],b=d[i+2],mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+        if(mx-mn<18)gris++; if((r+g+b)/3<90)osc++; tot++;
+      }
+      var ratio=w/h;
+      if(gris/tot>0.9&&osc/tot>0.25) return {k:'rx',cat:ratio>1.8?'rx_panoramica':'rx_periapical',ar:ratio};
+      return {k:null,cat:null,ar:ratio};
+    }catch(e){ return {k:null,cat:null,ar:(w/h)||1.33}; }
+  }
+
+  function aBlob(canvas,calidad){
+    return new Promise(function(res){ canvas.toBlob(res,'image/jpeg',calidad); });
+  }
+
+  /* Una sola decodificación por foto. createImageBitmap descomprime sin
+     pasar por el DOM y, con imageOrientation, respeta el EXIF —sin eso
+     las fotos de teléfono saldrían giradas—. De ahí salen las tres
+     versiones que necesitamos: la de las láminas, la que viaja a Gemini
+     y la muestra para clasificarla. */
+  async function normalizar(file){
+    var fuente=null, w=0, h=0, cerrar=null;
+    if(window.createImageBitmap){
+      try{
+        fuente=await createImageBitmap(file,{imageOrientation:'from-image'});
+        w=fuente.width; h=fuente.height;
+        cerrar=function(){ try{ fuente.close(); }catch(e){} };
+      }catch(e){ fuente=null; }
+    }
+    if(!fuente){ return normalizarConImg(file); }
+    if(!w||!h){ cerrar(); return null; }
+
+    try{
+      var L=1600, e=Math.min(1,L/Math.max(w,h));
+      var c=document.createElement('canvas'); c.width=Math.round(w*e); c.height=Math.round(h*e);
+      c.getContext('2d').drawImage(fuente,0,0,c.width,c.height);
+
+      var L2=900, e2=Math.min(1,L2/Math.max(w,h));
+      var c2=document.createElement('canvas'); c2.width=Math.round(w*e2); c2.height=Math.round(h*e2);
+      c2.getContext('2d').drawImage(fuente,0,0,c2.width,c2.height);
+
+      var cl=clasificaDeFuente(fuente,w,h);
+      var blobs=await Promise.all([aBlob(c,0.85),aBlob(c2,0.72)]);
+      cerrar();
+      if(!blobs[0])return null;
+      return {blob:blobs[0],url:URL.createObjectURL(blobs[0]),ar:w/h,mini:blobs[1]||blobs[0],cl:cl};
+    }catch(err){ cerrar(); console.warn('[normalizar]',err); return null; }
+  }
+
+  /* Camino de respaldo: formatos que createImageBitmap no sabe abrir. */
+  function normalizarConImg(file){
     return new Promise(function(res){
       var url=URL.createObjectURL(file), img=new Image();
       var fin=function(v){ try{URL.revokeObjectURL(url);}catch(e){} res(v); };
@@ -1834,14 +1891,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         var L=1600, e=Math.min(1,L/Math.max(w,h));
         var c=document.createElement('canvas'); c.width=Math.round(w*e); c.height=Math.round(h*e);
         try{ c.getContext('2d').drawImage(img,0,0,c.width,c.height); }catch(err){ return fin(null); }
+        var cl=clasificaDeFuente(img,w,h);
         c.toBlob(function(b){
           if(!b)return fin(null);
-          /* copia chica: a Gemini le sobra para clasificar y viaja mucho más rápido */
           var L2=900, e2=Math.min(1,L2/Math.max(w,h));
           var c2=document.createElement('canvas'); c2.width=Math.round(w*e2); c2.height=Math.round(h*e2);
-          try{ c2.getContext('2d').drawImage(img,0,0,c2.width,c2.height); }catch(err){ return fin({blob:b,url:URL.createObjectURL(b),ar:w/h}); }
+          try{ c2.getContext('2d').drawImage(img,0,0,c2.width,c2.height); }catch(err){ return fin({blob:b,url:URL.createObjectURL(b),ar:w/h,cl:cl}); }
           c2.toBlob(function(b2){
-            fin({blob:b,url:URL.createObjectURL(b),ar:w/h,mini:b2||b});
+            fin({blob:b,url:URL.createObjectURL(b),ar:w/h,mini:b2||b,cl:cl});
           },'image/jpeg',0.72);
         },'image/jpeg',0.85);
       };
@@ -1934,16 +1991,31 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     /* se agregan a lo que ya hubiera: para vaciar está «Nuevo caso» */
     var primeraCarga=!audios.length&&!Object.keys(photos).length;
     var ilegibles=[];
-    for(var j=0;j<fot.length;j++){
-      var nz=await normalizar(fot[j]);
-      if(!nz){ ilegibles.push(fot[j].name); continue; }
-      var id='f'+(seqFoto++);
-      var cl=await clasificaLocal(nz.url);
-      photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:cl.k||'face',u:nz.url,
-                  file:new File([nz.blob],fot[j].name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}),
-                  mini:nz.mini,orig:huella(fot[j]),rv:!cl.k,ar:nz.ar||cl.ar||1.33};
-      var destino=destinoFoto(CAT_TIPO[cl.cat]);
-      if(destino!=null)slides[destino].p.push(id); else tray.push(id);
+    /* Preparar una foto es decodificarla, reescalarla dos veces y mirarla
+       para adivinar qué es. De a una, veinte fotos son veinte esperas;
+       de a cuatro el navegador usa los núcleos que tiene. El reparto en
+       láminas se hace después y en orden, para que no cambie nada. */
+    if(fot.length){
+      var preparadas=new Array(fot.length), hechas=0;
+      var indices=fot.map(function(_,i){return i;});
+      await enParalelo(indices,4,async function(j){
+        try{
+          var nz=await normalizar(fot[j]);
+          if(nz)preparadas[j]={nz:nz,cl:nz.cl||{k:null,cat:null,ar:nz.ar}};
+        }catch(e){ console.warn('[foto]',fot[j].name,e); }
+        hechas++;
+        document.getElementById('drop-s').textContent='Preparando fotos… '+hechas+' de '+fot.length;
+      });
+      for(var j=0;j<fot.length;j++){
+        var it=preparadas[j];
+        if(!it){ ilegibles.push(fot[j].name); continue; }
+        var id='f'+(seqFoto++);
+        photos[id]={n:fot[j].name.replace(/\.[^.]+$/,''),k:it.cl.k||'face',u:it.nz.url,
+                    file:new File([it.nz.blob],fot[j].name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}),
+                    mini:it.nz.mini,orig:huella(fot[j]),rv:!it.cl.k,ar:it.nz.ar||it.cl.ar||1.33};
+        var destino=destinoFoto(CAT_TIPO[it.cl.cat]);
+        if(destino!=null)slides[destino].p.push(id); else tray.push(id);
+      }
     }
     /* Transcripción ya hecha: reemplaza la anterior si se suelta otra.
        Si el PDF resulta ser el presupuesto de Dentalink, se carga como
@@ -1966,8 +2038,16 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var nuevos=aud.map(function(f){return {f:f,dur:0};});
     audios=audios.concat(nuevos).sort(function(a,b){return a.f.name.localeCompare(b.f.name,'es',{numeric:true});});
     pintaInventario(ign);
-    for(var k=0;k<audios.length;k++){
-      if(!audios[k].dur){audios[k].dur=await duracion(audios[k].f);pintaInventario(ign);}
+    /* La duración solo sirve para mostrarla y para estimar la espera del
+       análisis. Con una transcripción cargada el audio ni se manda, así
+       que abrir cada archivo para medirlo —y un video pesa— es tiempo
+       tirado. Cuando sí hace falta, se miden de a dos. */
+    if(!transcripcion){
+      var porMedir=audios.filter(function(a){return !a.dur;});
+      await enParalelo(porMedir,2,async function(a){
+        a.dur=await duracion(a.f);
+        pintaInventario(ign);
+      });
     }
 
     if(ign.length){
