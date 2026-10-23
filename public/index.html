@@ -3306,6 +3306,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     document.getElementById('u-rol').textContent=perfil.rol||'';
   }
 
+  /* El enlace deja el token a la vista en la URL: se limpia para que no
+     quede en el historial del navegador ni se reintente al recargar. */
+  function limpiarUrl(){
+    try{ history.replaceState(null,'',location.pathname); }catch(e){}
+  }
+
   async function traerPerfil(){
     /* Hay que pedir EL perfil de quien entró. Todos en la clínica pueden
        leer los perfiles de sus colegas, así que sin filtrar por el id de
@@ -3353,6 +3359,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(/Email not confirmed/i.test(m))return 'Tu correo todavía no está confirmado. El administrador puede confirmarlo desde Supabase → Authentication → Users.';
     if(/rate limit|too many/i.test(m))return 'Demasiados intentos seguidos. Espera un minuto y vuelve a probar.';
     if(/same.*password|should be different/i.test(m))return 'Esa es la contraseña que ya tenías. Elige otra.';
+    if(/Auth session missing|session_not_found/i.test(m))return 'El enlace del correo venció o ya se usó.\n\nPide otro desde «¿Olvidaste tu contraseña?» en la pantalla de acceso.';
     if(/reauthentication|session.*expired|JWT/i.test(m))return 'Tu sesión expiró. Vuelve a entrar y cámbiala de nuevo.';
     if(/Error sending|SMTP|email.*not.*sent/i.test(m))return 'La clínica todavía no tiene configurado el envío de correos en Supabase, así que no se puede recuperar por correo.\n\nPídele al administrador que te la cambie desde Supabase → Authentication → Users.';
     if(/Failed to fetch|NetworkError/i.test(m))return 'No hay conexión con el servidor de sesiones. Revisa tu internet y reintenta.';
@@ -3369,12 +3376,37 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       /* sin Supabase: el historial vive en este equipo */
       Store.modo='local'; gate.hidden=true; mostrarUsuario(null); await cargarCasos(); return;
     }
-    window.SB=window.supabase.createClient(cfg.supabase.url,cfg.supabase.anon,{auth:{persistSession:true,autoRefreshToken:true}});
-    /* Si llega por el enlace del correo, Supabase avisa y se pide la nueva. */
+    /* El enlace del correo trae lo suyo en el # o en la query, según el
+       flujo que use Supabase. Hay que mirarlo ANTES de preguntar por la
+       sesión: ese enlace deja sesión iniciada, así que si no, la página
+       entraba derecho al caso nuevo y nunca pedía la contraseña. */
+    var hash=(location.hash||'').replace(/^#/,'');
+    var qs=new URLSearchParams(location.search);
+    var vieneARecuperar=/(^|&)type=recovery(&|$)/.test(hash)||qs.get('type')==='recovery';
+    var errorDelEnlace=new URLSearchParams(hash).get('error_description')||qs.get('error_description');
+
+    window.SB=window.supabase.createClient(cfg.supabase.url,cfg.supabase.anon,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    /* red de seguridad: si el aviso llega por evento, también sirve */
     window.SB.auth.onAuthStateChange(function(evento){
       if(evento==='PASSWORD_RECOVERY'){ gate.hidden=true; abrirClave('recuperar'); }
     });
+
     var ses=await window.SB.auth.getSession();
+
+    if(errorDelEnlace){
+      limpiarUrl();
+      gate.hidden=false;
+      errGate('El enlace del correo ya no sirve: '+errorDelEnlace+'\n\nPide otro desde «¿Olvidaste tu contraseña?».');
+      return;
+    }
+    if(vieneARecuperar){
+      limpiarUrl();
+      gate.hidden=true;
+      abrirClave('recuperar');
+      if(!(ses.data&&ses.data.session))
+        errClave('El enlace venía vencido o ya usado. Si no te deja guardar, pide otro desde la pantalla de acceso.');
+      return;
+    }
     if(ses.data&&ses.data.session){ await sesionLista(); }
     else { gate.hidden=false; document.getElementById('g-mail').focus(); }
   }
