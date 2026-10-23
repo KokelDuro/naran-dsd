@@ -2743,12 +2743,72 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     return {x:X+(W-w)/2, y:Y+(H-h)/2, w:w, h:h};
   }
 
-  /* Dibuja las fotos de una lámina con la rejilla que corresponda. */
+  /* ── Repartir fotos sin recortarlas ni achicarlas de más ────────────
+   * Una cuadrícula de celdas iguales obliga a recortar todo lo que no
+   * calce, y cuantas más fotos, más chica la celda. En vez de eso, cada
+   * foto recibe el ancho que pide su propia proporción: las filas se
+   * llenan de lado a lado y el marco calza exacto con la imagen, así no
+   * se pierde ningún borde.
+   */
+  function repartirEnFilas(ars,r){
+    var total=ars.reduce(function(a,x){return a+x;},0), objetivo=total/r;
+    var filas=[], actual=[], suma=0;
+    for(var i=0;i<ars.length;i++){
+      var quedan=ars.length-i, faltanFilas=r-filas.length;
+      actual.push(ars[i]); suma+=ars[i];
+      /* se cierra la fila al pasar su parte, dejando al menos una foto
+         para cada fila que todavía falta */
+      if(filas.length<r-1 && suma>=objetivo && quedan-1>=faltanFilas-1){
+        filas.push(actual); actual=[]; suma=0;
+      }
+    }
+    if(actual.length)filas.push(actual);
+    while(filas.length<r)filas.push([]);
+    return filas.filter(function(f){return f.length;});
+  }
+
+  function marcosJustificados(ids,X,Y,W,H,g){
+    g=g==null?18:g;
+    var ars=ids.map(function(id){var p=photos[id];return (p&&p.ar)||1.33;});
+    var mejor=null;
+    for(var r=1;r<=ars.length;r++){
+      var filas=repartirEnFilas(ars,r);
+      if(filas.length!==r)continue;
+      var alturas=filas.map(function(f){
+        var suma=f.reduce(function(a,x){return a+x;},0);
+        return (W-(f.length-1)*g)/suma;
+      });
+      /* los espacios entre filas no se encogen: solo se reparte la altura
+         que queda después de descontarlos */
+      var suma=alturas.reduce(function(a,x){return a+x;},0), huecos=(r-1)*g;
+      if(H-huecos<=0)continue;
+      var escala=Math.min(1,(H-huecos)/suma);
+      /* la mejor repartición es la que deja más grande a la foto más
+         chica: así ninguna queda sacrificada */
+      var menor=Math.min.apply(null,alturas)*escala;
+      if(!mejor||menor>mejor.menor)mejor={menor:menor,filas:filas,alturas:alturas,escala:escala,alto:suma*escala+huecos};
+    }
+    if(!mejor)return [];
+    var out=[], k=0, y=Y+(H-mejor.alto)/2;
+    mejor.filas.forEach(function(f,i){
+      var h=mejor.alturas[i]*mejor.escala;
+      var anchos=f.map(function(ar){return ar*h;});
+      var ancho=anchos.reduce(function(a,x){return a+x;},0)+(f.length-1)*g;
+      var x=X+(W-ancho)/2;
+      f.forEach(function(ar,j){ out.push({x:x,y:y,w:anchos[j],h:h}); x+=anchos[j]+g; });
+      y+=h+g;
+    });
+    return out;
+  }
+
+  /* Dibuja las fotos de una lámina, cada una con su proporción entera. */
   function fotos(lista,X,Y,W,H,etiquetas){
     lista=(lista||[]).filter(Boolean);
     if(!lista.length)return fr(X+(W-W*0.45)/2,Y,W*0.45,H,null,(etiquetas&&etiquetas[0])||'Sin fotos');
     if(lista.length===1){var m=marcoUnico(lista[0],X,Y,W,H);return fr(m.x,m.y,m.w,m.h,lista[0]);}
-    return rejilla(lista.length,X,Y,W,H).map(function(r,i){return fr(r.x,r.y,r.w,r.h,lista[i]);}).join('');
+    var ms=marcosJustificados(lista,X,Y,W,H);
+    if(!ms.length)return rejilla(lista.length,X,Y,W,H).map(function(r,i){return fr(r.x,r.y,r.w,r.h,lista[i]);}).join('');
+    return ms.map(function(r,i){return fr(r.x,r.y,r.w,r.h,lista[i]);}).join('');
   }
   function val(id){var el=document.getElementById(id);return el?el.value:'';}
   function cap(str){return tx(48,485,860,30,str,11,{color:'a8d0c8',bold:true});}
@@ -2762,9 +2822,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     retrato:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Retrato sonriendo'])+cap('Registro fotográfico')};},
     perfiles:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Perfiles'])+cap('Perfiles')};},
     sonrisa:function(sl){var p=(sl.p||[]).filter(Boolean);
-      /* con exactamente 3, la clásica: frontal grande y las dos laterales al lado */
-      var h=p.length===3?fr(58,72,509,398,p[0])+fr(586,72,317,192,p[1])+fr(586,278,317,192,p[2]):fotos(p,48,58,864,412,['Sonrisa']);
-      return {cls:'dark',h:darkHead()+h+cap('Sonrisa')};},
+      /* antes, con tres fotos, iban en marcos fijos que recortaban los
+         bordes; ahora van como las demás, con su proporción entera */
+      return {cls:'dark',h:darkHead()+fotos(p,48,58,864,412,['Sonrisa'])+cap('Sonrisa')};},
     escaneo:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Escaneo intraoral'])+cap('Escaneo intraoral')};},
     mapas:function(sl){var h=darkHead()+fotos(sl.p,48,58,864,370,['Mapas oclusales']);
       h+='<div class="escala" style="left:336px;top:442px;width:288px;height:21px"><i style="background:#d9342b"></i><i style="background:#e8842a"></i><i style="background:#f2c230"></i><i style="background:#8fd14f"></i><i style="background:#3fb8d8"></i><i style="background:#2d55d8"></i></div>'+tx(336,466,288,20,'0.0     0.2     0.4     0.6     0.8     1.0 mm',8,{color:'a8d0c8',align:'center'})+cap('Mapas de contacto oclusal');return {cls:'dark',h:h};},
