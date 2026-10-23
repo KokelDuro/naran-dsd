@@ -217,6 +217,13 @@ button.usuario:hover{color:var(--ink)}
 .tile.lift{transform:none;opacity:.25}
 .tile .nm{position:absolute;left:0;right:0;bottom:0;padding:3px 5px;font-size:8px;font-weight:600;color:#f6f9f8;background:linear-gradient(transparent,rgba(14,26,26,.75));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .rv{position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px rgba(255,255,255,.85)}
+.tile .sacar{position:absolute;top:3px;right:3px;width:17px;height:17px;padding:0;display:grid;place-items:center;border:0;border-radius:50%;
+  background:rgba(14,26,26,.68);color:#f6f9f8;cursor:pointer;opacity:0;transition:opacity .14s ease,background .14s ease;box-shadow:none}
+.tile .sacar svg{position:static;width:9px;height:9px}
+.tile:hover .sacar,.tile:focus-within .sacar{opacity:1}
+.tile .sacar:hover{background:var(--warn)}
+#tray .tile .sacar{display:none}
+@media (hover:none){.tile .sacar{opacity:1}}
 .tile svg{position:absolute;inset:0;width:100%;height:100%}
 .tile.face,.tile.smile,.tile.map{background:var(--ph-face)} .tile.scan{background:var(--ph-scan)} .tile.rx{background:var(--ph-rx)}
 .drag-ghost{position:fixed;z-index:60;pointer-events:none;will-change:transform;box-shadow:14px 14px 30px var(--sd),-8px -8px 20px var(--sl)}
@@ -319,6 +326,12 @@ button.usuario:hover{color:var(--ink)}
 .sv-in .fr.scan{background:linear-gradient(160deg,#efd9ce,#d3a493)}
 .sv-in .fr.rx{background:linear-gradient(160deg,#2b3d3d,#0e1a1a)}
 .fr>img.enc{position:absolute;max-width:none;object-fit:fill;border-radius:0}
+.disp{position:fixed;z-index:72;display:grid;gap:2px;padding:8px;border-radius:14px;background:var(--bg);box-shadow:var(--up-s),0 18px 44px rgba(0,0,0,.28);min-width:232px}
+.disp small{padding:6px 10px 2px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.disp button{display:grid;gap:1px;justify-items:start;text-align:left;padding:8px 10px;border:0;border-radius:10px;background:none;box-shadow:none;cursor:pointer;font:inherit;font-size:13px;color:var(--ink)}
+.disp button span{font-size:11px;color:var(--muted)}
+.disp button:hover{background:color-mix(in srgb,var(--brand) 12%,transparent)}
+.disp button[aria-checked="true"]{background:color-mix(in srgb,var(--brand) 18%,transparent);font-weight:600}
 .fed{position:fixed;inset:0;z-index:80;background:rgba(12,21,20,.78);display:none;place-items:center;padding:24px;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .fed.on{display:grid}
 .fed .box{width:min(540px,100%);display:grid;gap:14px;color:#e6eeec}
@@ -982,6 +995,18 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     <div class="nav" style="justify-content:center;font-size:12px;opacity:.65">Desliza, usa las flechas o ← →  ·  Esc para cerrar</div>
   </div>
 </div>
+<div class="disp" id="disp" role="menu" aria-label="Cómo se ordenan las fotos" hidden>
+  <small>Cómo se reparten</small>
+  <button type="button" role="menuitemradio" data-o="auto">Automático<span>cada una con su proporción</span></button>
+  <button type="button" role="menuitemradio" data-o="fila">Todas en una fila</button>
+  <button type="button" role="menuitemradio" data-o="dos">En dos filas</button>
+  <button type="button" role="menuitemradio" data-o="grande">Una grande y el resto al lado</button>
+  <button type="button" role="menuitemradio" data-o="columna">Una debajo de otra</button>
+  <small>Orden</small>
+  <button type="button" role="menuitem" data-a="invertir">Dar vuelta el orden</button>
+  <button type="button" role="menuitem" data-a="nombre">Ordenar por nombre</button>
+</div>
+
 <div class="fed" id="fed" role="dialog" aria-modal="true" aria-label="Ajustar la foto">
   <div class="box">
     <div class="cab">
@@ -1264,7 +1289,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     /* las láminas con sus fotos, para rearmarlas tal cual al reabrir */
     d.laminas=slides.map(function(sl){
       return {t:sl.t,oculta:!!sl.hidden,fixed:!!sl.fixed,kind:sl.kind||null,
-              extra:!!sl.extra,max:sl.max||0,p:(sl.p||[]).slice()};
+              extra:!!sl.extra,max:sl.max||0,orden:sl.orden||null,p:(sl.p||[]).slice()};
     });
     d.tray=tray.slice();
     /* de cada foto, lo necesario para volver a montarla: el archivo va aparte */
@@ -1416,7 +1441,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       slides=d.laminas.map(function(l){
         var sl={t:l.t,hidden:!!l.oculta};
         if(l.fixed)sl.fixed=true;
-        else { sl.p=(l.p||[]).filter(hay); sl.max=l.max||4; if(l.kind)sl.kind=l.kind; if(l.extra)sl.extra=true; }
+        else { sl.p=(l.p||[]).filter(hay); sl.max=l.max||4; if(l.kind)sl.kind=l.kind; if(l.extra)sl.extra=true; if(l.orden)sl.orden=l.orden; }
         return sl;
       });
       tray=(d.tray||[]).filter(hay);
@@ -1634,7 +1659,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var photos={p1:{n:'IMG_0231',k:'face'},p2:{n:'IMG_0232',k:'face'},p3:{n:'IMG_0235',k:'face'},p4:{n:'IMG_0236',k:'face'},p5:{n:'IMG_0240',k:'smile'},p6:{n:'IMG_0241',k:'smile'},p7:{n:'IMG_0242',k:'smile',rv:true},p8:{n:'scan_front',k:'scan'},p9:{n:'scan_sup',k:'scan'},p10:{n:'scan_inf',k:'scan'},p11:{n:'scan_lat',k:'scan',rv:true},p12:{n:'pano_2026',k:'rx'}};
   var slides=[{t:'Portada',fixed:true},{t:'Tu caso',p:[],max:1},{t:'Frase síntesis',fixed:true},{t:'Retrato',p:[],max:2},{t:'Perfiles',p:[],max:4},{t:'Sonrisa',p:[],max:4},{t:'Escaneo intraoral',p:[],max:6},{t:'Mapas oclusales',p:[],max:6},{t:'Rx panorámica',p:[],max:4},{t:'Rx periapical',p:[],max:6},{t:'Cierre',fixed:true}];
   var tray=['p11'];
-  function tileHTML(id){var p=photos[id];return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+(p.rv?'<span class="rv"></span>':'')+'</div>';}
+  function tileHTML(id){var p=photos[id];
+    return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+esc(p.n)+'">'+
+      (p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+
+      (p.rv?'<span class="rv"></span>':'')+
+      '<button class="sacar" type="button" data-sacar="'+id+'" tabindex="-1" aria-label="Sacar '+esc(p.n)+' de la lámina" title="Sacar de la lámina">'+
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'+
+      '</button></div>';}
   document.getElementById('strip').innerHTML=Object.keys(photos).map(function(id){var p=photos[id];return '<div class="tile '+p.k+'" style="cursor:default;width:42px;height:42px">'+ICON[p.k]+'</div>';}).join('');
 
   /* Una lámina repetida conserva el tipo del original: así las fotos de
@@ -1673,7 +1704,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   var sb=document.getElementById('sb');
-  var UP='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',DN='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',EYE='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg>',MAS='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',QUITAR='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>';
+  var UP='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',DN='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',EYE='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg>',CUADROS='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>',MAS='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',QUITAR='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>';
   function render(){
     var n=0;
     sb.innerHTML=slides.map(function(s,i){
@@ -1684,6 +1715,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       return '<div class="sb'+(s.hidden?' hidden-s':'')+'" data-i="'+i+'"><div class="num">'+idx+'<small>'+(s.hidden?'oculta':'lámina')+'</small></div><div class="sv" data-kind="dsd" data-si="'+i+'"></div>'+
         '<div class="body"><div class="ti"><b>'+s.t+'</b><span class="meta">'+meta+'</span>'+(rvc?'<span class="pill warn"><span class="d"></span>revisar '+rvc+'</span>':'')+'</div>'+slots+'</div>'+
         '<div class="ctl"><button class="icn" aria-label="Subir" data-mv="-1"'+(i===0?' disabled':'')+'>'+UP+'</button><button class="icn" aria-label="Bajar" data-mv="1"'+(i===slides.length-1?' disabled':'')+'>'+DN+'</button><button class="icn'+(s.hidden?' on':'')+'" aria-label="Ocultar lámina" data-hide>'+EYE+'</button>'+
+        (s.fixed?'':'<button class="icn'+(s.orden&&s.orden!=='auto'?' on':'')+'" aria-label="Cómo se ordenan las fotos" title="Cómo se ordenan las fotos" data-disp>'+CUADROS+'</button>')+
         (s.fixed?'':'<button class="icn" aria-label="Agregar otra lámina de este tipo" title="Agregar otra lámina igual" data-dup>'+MAS+'</button>')+
         (s.extra?'<button class="icn" aria-label="Quitar esta lámina" title="Quitar esta lámina" data-rm>'+QUITAR+'</button>':'')+'</div></div>';
     }).join('');
@@ -1693,18 +1725,62 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     rc.className='pill '+(totalRv?'warn':'ok');rc.innerHTML='<span class="d"></span>'+(totalRv?totalRv+(totalRv>1?' fotos por revisar':' foto por revisar'):'Todo revisado');
     if(window.refreshPreviews)refreshPreviews();
   }
-  sb.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;var i=+b.closest('.sb').dataset.i;
+  sb.addEventListener('click',function(e){
+    var x=e.target.closest('[data-sacar]');
+    if(x){ e.stopPropagation(); var id=x.dataset.sacar; removeFrom(id); tray.push(id); render(); return; }
+    var b=e.target.closest('button');if(!b)return;var i=+b.closest('.sb').dataset.i;
     if(b.hasAttribute('data-hide')){slides[i].hidden=!slides[i].hidden;render();return;}
+    if(b.hasAttribute('data-disp')){abrirDisposicion(b,i);return;}
     if(b.hasAttribute('data-dup')){duplicarLamina(i);render();return;}
     if(b.hasAttribute('data-rm')){(slides[i].p||[]).forEach(function(id){tray.push(id);});slides.splice(i,1);render();return;}
     var j=i+(+b.dataset.mv);if(j<0||j>=slides.length)return;var tmp=slides[i];slides[i]=slides[j];slides[j]=tmp;render();});
   render();
+
+  /* ── Cómo se reparten las fotos de una lámina ──────────────────────
+   * El reparto automático acomoda cada foto con su proporción, pero a
+   * veces uno quiere mandar: todas en fila, una grande, o dar vuelta el
+   * orden cuando quedaron al revés de como se presentan.
+   */
+  var menuDisp=document.getElementById('disp'), laminaDisp=null;
+  function abrirDisposicion(boton,i){
+    laminaDisp=i;
+    var actual=slides[i].orden||'auto';
+    menuDisp.querySelectorAll('[data-o]').forEach(function(b){b.setAttribute('aria-checked',b.dataset.o===actual);});
+    menuDisp.hidden=false;
+    var r=boton.getBoundingClientRect(), m=menuDisp.getBoundingClientRect();
+    var x=Math.min(r.right-m.width, window.innerWidth-m.width-12);
+    var y=r.bottom+8;
+    if(y+m.height>window.innerHeight-12)y=Math.max(12,r.top-m.height-8);
+    menuDisp.style.left=Math.max(12,x)+'px';
+    menuDisp.style.top=y+'px';
+  }
+  function cerrarDisposicion(){ menuDisp.hidden=true; laminaDisp=null; }
+  menuDisp.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b||laminaDisp==null)return;
+    var sl=slides[laminaDisp];
+    if(b.dataset.o){ sl.orden=b.dataset.o; }
+    else if(b.dataset.a==='invertir'){ (sl.p||[]).reverse(); }
+    else if(b.dataset.a==='nombre'){
+      (sl.p||[]).sort(function(a,c){
+        return (photos[a].n||'').localeCompare(photos[c].n||'','es',{numeric:true});
+      });
+    }
+    cerrarDisposicion(); render();
+  });
+  document.addEventListener('pointerdown',function(e){
+    if(menuDisp.hidden)return;
+    if(e.target.closest('#disp')||e.target.closest('[data-disp]'))return;
+    cerrarDisposicion();
+  },true);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!menuDisp.hidden)cerrarDisposicion(); });
+  window.addEventListener('resize',function(){ if(!menuDisp.hidden)cerrarDisposicion(); });
 
   /* drag */
   var drag=null;
   function findOwner(id){for(var i=0;i<slides.length;i++){if(slides[i].p&&slides[i].p.indexOf(id)>=0)return i;}return 'tray';}
   function removeFrom(id){var o=findOwner(id);if(o==='tray')tray.splice(tray.indexOf(id),1);else slides[o].p.splice(slides[o].p.indexOf(id),1);}
   document.addEventListener('pointerdown',function(e){
+    if(e.target.closest('[data-sacar]'))return;
     var t=e.target.closest('.tile');if(!t||!t.dataset.id)return;if(e.button!==undefined&&e.button!==0)return;
     var r=t.getBoundingClientRect(),g=t.cloneNode(true);g.classList.add('drag-ghost');g.style.left=r.left+'px';g.style.top=r.top+'px';g.style.width=r.width+'px';g.style.height=r.height+'px';
     document.body.appendChild(g);t.classList.add('lift');
@@ -1719,11 +1795,36 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var u=document.elementFromPoint(e.clientX,e.clientY),z=u&&u.closest('.slots:not(.fixed)');
     if(z!==drag.over){if(drag.over)drag.over.classList.remove('over');if(z)z.classList.add('over');drag.over=z;}
   });
+  /* En qué lugar de la fila cayó la foto: se compara con el centro de
+     cada miniatura que ya está puesta. Así se puede cambiar el orden
+     dentro de la misma lámina, no solo moverla de lámina. */
+  function lugarEn(zona,x,y,idArrastrada){
+    var tiles=[].slice.call(zona.querySelectorAll('.tile[data-id]'))
+      .filter(function(t){return t.dataset.id!==idArrastrada;});
+    for(var i=0;i<tiles.length;i++){
+      var r=tiles[i].getBoundingClientRect();
+      /* antes de esta miniatura si cayó a su izquierda, o en una fila de más arriba */
+      if(y<r.bottom&&(y<r.top||x<r.left+r.width/2))return i;
+    }
+    return tiles.length;
+  }
+
   function endDrag(e){
     if(!drag||e.pointerId!==drag.pid)return;var d=drag;drag=null;if(d.over)d.over.classList.remove('over');
     var zone=d.over&&d.over.dataset.slide;
-    if(d.started&&zone!=null&&zone!==String(findOwner(d.id))){removeFrom(d.id);if(zone==='tray')tray.push(d.id);else slides[+zone].p.push(d.id);photos[d.id].rv=false;d.g.remove();render();return;}
-    if(d.started&&zone!=null)photos[d.id].rv=false;
+    if(d.started&&zone!=null){
+      var lugar=lugarEn(d.over,e.clientX,e.clientY,d.id);
+      var dueno=findOwner(d.id);
+      var lista=zone==='tray'?tray:slides[+zone].p;
+      var mismo=(zone===String(dueno));
+      if(!mismo||lista.indexOf(d.id)!==lugar){
+        removeFrom(d.id);
+        /* al salir de su propio sitio, lo que venía detrás corre un lugar */
+        if(mismo&&lista.indexOf(d.id)<0&&lugar>lista.length)lugar=lista.length;
+        lista.splice(Math.min(lugar,lista.length),0,d.id);
+      }
+      photos[d.id].rv=false; d.g.remove(); d.el.classList.remove('lift'); render(); return;
+    }
     /* no la arrastró: fue un toque, y un toque abre el encuadre */
     if(!d.started){d.g.remove();d.el.classList.remove('lift');photos[d.id].rv=false;render();abrirEditor(d.id);return;}
     var cx=d.x,cy=d.y;
@@ -2751,27 +2852,34 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
    * se pierde ningún borde.
    */
   function repartirEnFilas(ars,r){
+    var n=ars.length;
+    if(r<=1)return [ars.slice()];
+    if(r>=n)return ars.map(function(a){return [a];});   /* una por fila */
     var total=ars.reduce(function(a,x){return a+x;},0), objetivo=total/r;
     var filas=[], actual=[], suma=0;
-    for(var i=0;i<ars.length;i++){
-      var quedan=ars.length-i, faltanFilas=r-filas.length;
+    for(var i=0;i<n;i++){
       actual.push(ars[i]); suma+=ars[i];
-      /* se cierra la fila al pasar su parte, dejando al menos una foto
-         para cada fila que todavía falta */
-      if(filas.length<r-1 && suma>=objetivo && quedan-1>=faltanFilas-1){
+      var quedanFotos=n-i-1, faltanFilas=r-filas.length-1;
+      /* se cierra la fila al pasar su parte, o antes si hay que reservar
+         una foto para cada fila que todavía falta */
+      if(faltanFilas>0 && (suma>=objetivo || quedanFotos<=faltanFilas)){
         filas.push(actual); actual=[]; suma=0;
       }
     }
     if(actual.length)filas.push(actual);
-    while(filas.length<r)filas.push([]);
-    return filas.filter(function(f){return f.length;});
+    return filas;
   }
 
-  function marcosJustificados(ids,X,Y,W,H,g){
+  function marcosJustificados(ids,X,Y,W,H,g,orden){
     g=g==null?18:g;
     var ars=ids.map(function(id){var p=photos[id];return (p&&p.ar)||1.33;});
+    if(orden==='grande'&&ars.length>1)return marcosUnaGrande(ars,X,Y,W,H,g);
+    var desde=1, hasta=ars.length;
+    if(orden==='fila'){desde=hasta=1;}
+    else if(orden==='dos'&&ars.length>1){desde=hasta=2;}
+    else if(orden==='columna'){desde=hasta=ars.length;}
     var mejor=null;
-    for(var r=1;r<=ars.length;r++){
+    for(var r=desde;r<=hasta;r++){
       var filas=repartirEnFilas(ars,r);
       if(filas.length!==r)continue;
       var alturas=filas.map(function(f){
@@ -2801,12 +2909,40 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     return out;
   }
 
+  /* La composición de siempre del DSD: la primera manda y las demás se
+     apilan a su lado, todas con su proporción entera. */
+  function marcosUnaGrande(ars,X,Y,W,H,g){
+    var resto=ars.slice(1);
+    /* la columna de la derecha vale lo que necesite para que sus fotos
+       quepan en el alto disponible */
+    var sumaInv=resto.reduce(function(a,ar){return a+1/ar;},0);
+    var anchoCol=(H-(resto.length-1)*g)/sumaInv;
+    var anchoGrande=Math.min(W-g-anchoCol, H*ars[0]);
+    if(anchoGrande<W*0.35){ anchoGrande=W*0.55; anchoCol=W-g-anchoGrande; }
+    var altoGrande=anchoGrande/ars[0];
+    if(altoGrande>H){ altoGrande=H; anchoGrande=H*ars[0]; }
+    anchoCol=Math.max(40,Math.min(anchoCol,W-g-anchoGrande));
+
+    var altos=resto.map(function(ar){return anchoCol/ar;});
+    var altoCol=altos.reduce(function(a,x){return a+x;},0)+(resto.length-1)*g;
+    if(altoCol>H){
+      var k=(H-(resto.length-1)*g)/(altoCol-(resto.length-1)*g);
+      anchoCol*=k; altos=altos.map(function(x){return x*k;});
+      altoCol=altos.reduce(function(a,x){return a+x;},0)+(resto.length-1)*g;
+    }
+    var usado=anchoGrande+g+anchoCol, x0=X+(W-usado)/2;
+    var out=[{x:x0,y:Y+(H-altoGrande)/2,w:anchoGrande,h:altoGrande}];
+    var y=Y+(H-altoCol)/2;
+    altos.forEach(function(h){ out.push({x:x0+anchoGrande+g,y:y,w:anchoCol,h:h}); y+=h+g; });
+    return out;
+  }
+
   /* Dibuja las fotos de una lámina, cada una con su proporción entera. */
-  function fotos(lista,X,Y,W,H,etiquetas){
+  function fotos(lista,X,Y,W,H,etiquetas,orden){
     lista=(lista||[]).filter(Boolean);
     if(!lista.length)return fr(X+(W-W*0.45)/2,Y,W*0.45,H,null,(etiquetas&&etiquetas[0])||'Sin fotos');
     if(lista.length===1){var m=marcoUnico(lista[0],X,Y,W,H);return fr(m.x,m.y,m.w,m.h,lista[0]);}
-    var ms=marcosJustificados(lista,X,Y,W,H);
+    var ms=marcosJustificados(lista,X,Y,W,H,18,orden);
     if(!ms.length)return rejilla(lista.length,X,Y,W,H).map(function(r,i){return fr(r.x,r.y,r.w,r.h,lista[i]);}).join('');
     return ms.map(function(r,i){return fr(r.x,r.y,r.w,r.h,lista[i]);}).join('');
   }
@@ -2819,17 +2955,17 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var blocks=[['Motivo de consulta','r-motivo'],['Lo que buscas','r-busca'],['Lo importante para ti','r-importante'],['Expectativas del tratamiento','r-expect']];var y=168;
       blocks.forEach(function(b){h+=tx(384,y,518,28,b[0],11,{color:'306468',bold:true})+tx(384,y+25,518,54,val(b[1]),10.5,{ls:1.2});y+=79;});return {cls:'',h:h};},
     frase:function(){return {cls:'grad',h:logo(58,38,134)+tx(115,154,730,230,val('r-frase'),26,{serif:true,color:'234c50',align:'center',mid:true,ls:1.25})};},
-    retrato:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Retrato sonriendo'])+cap('Registro fotográfico')};},
-    perfiles:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Perfiles'])+cap('Perfiles')};},
+    retrato:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Retrato sonriendo'],sl.orden)+cap('Registro fotográfico')};},
+    perfiles:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Perfiles'],sl.orden)+cap('Perfiles')};},
     sonrisa:function(sl){var p=(sl.p||[]).filter(Boolean);
       /* antes, con tres fotos, iban en marcos fijos que recortaban los
          bordes; ahora van como las demás, con su proporción entera */
-      return {cls:'dark',h:darkHead()+fotos(p,48,58,864,412,['Sonrisa'])+cap('Sonrisa')};},
-    escaneo:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Escaneo intraoral'])+cap('Escaneo intraoral')};},
-    mapas:function(sl){var h=darkHead()+fotos(sl.p,48,58,864,370,['Mapas oclusales']);
+      return {cls:'dark',h:darkHead()+fotos(p,48,58,864,412,['Sonrisa'],sl.orden)+cap('Sonrisa')};},
+    escaneo:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Escaneo intraoral'],sl.orden)+cap('Escaneo intraoral')};},
+    mapas:function(sl){var h=darkHead()+fotos(sl.p,48,58,864,370,['Mapas oclusales'],sl.orden);
       h+='<div class="escala" style="left:336px;top:442px;width:288px;height:21px"><i style="background:#d9342b"></i><i style="background:#e8842a"></i><i style="background:#f2c230"></i><i style="background:#8fd14f"></i><i style="background:#3fb8d8"></i><i style="background:#2d55d8"></i></div>'+tx(336,466,288,20,'0.0     0.2     0.4     0.6     0.8     1.0 mm',8,{color:'a8d0c8',align:'center'})+cap('Mapas de contacto oclusal');return {cls:'dark',h:h};},
-    rxpano:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografía panorámica'])+cap('Radiografías')};},
-    rxperi:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografías periapicales'])+cap('Radiografías periapicales')};},
+    rxpano:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografía panorámica'],sl.orden)+cap('Radiografías')};},
+    rxperi:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografías periapicales'],sl.orden)+cap('Radiografías periapicales')};},
     cierre:function(){return {cls:'grad',h:logo(230,163,499)+tx(77,437,806,30,'Naran Estudio Dental  ·  Propuesta preparada especialmente para ti',11,{color:'234c50',align:'center'})};},
     propA:function(){var d=window.propData||{order:[],groups:{},off:{}},h=logo(792,31,120)+tx(58,43,670,48,'Tu plan, paso a paso',24,{serif:true,color:'306468'})+tx(58,91,710,30,'Empezamos por la salud. La fase estética se decide contigo después del diseño.',11,{color:'5d6f6d'});
       var fases=d.order.slice(0,3);if(!fases.length)return {cls:'',h:h+tx(58,220,845,60,'Suelta el PDF de Dentalink para ver el plan por fases',13,{color:'8fa19e',align:'center'})};
