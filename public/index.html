@@ -3307,7 +3307,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   async function traerPerfil(){
-    var r=await window.SB.from('perfiles').select('nombre,rol,clinica_id').limit(1).maybeSingle();
+    /* Hay que pedir EL perfil de quien entró. Todos en la clínica pueden
+       leer los perfiles de sus colegas, así que sin filtrar por el id de
+       la sesión vuelve una fila cualquiera —y la barra mostraba el nombre
+       y el rol de otra persona. */
+    var u=await window.SB.auth.getUser();
+    var uid=u.data&&u.data.user&&u.data.user.id;
+    if(!uid)return {error:'No se pudo leer tu sesión. Vuelve a entrar.'};
+    var r=await window.SB.from('perfiles').select('nombre,rol,clinica_id').eq('id',uid).maybeSingle();
     if(r.error){console.error('[perfil]',r.error);return {error:r.error.message};}
     if(!r.data)return {falta:true};
     return {perfil:r.data};
