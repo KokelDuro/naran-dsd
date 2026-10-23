@@ -103,6 +103,25 @@ y en el panel (Settings → Variables and Secrets) agrega como texto normal:
 
 Para probar localmente antes de publicar: `npx wrangler dev`.
 
+### Fotos y documentos compartidos
+
+Para que el ejecutivo vea las mismas fotos y los mismos PDF desde su equipo,
+hay que crear el bucket privado y sus políticas. En Supabase → SQL Editor,
+después de `01` y `02`:
+
+```
+app/supabase/05_archivos.sql
+```
+
+Crea el bucket `casos` (privado, 25 MB por archivo) y cuatro políticas que
+comparan la primera carpeta de la ruta con la clínica del usuario. Sin esto
+la página sigue funcionando: las fotos se guardan solo en el equipo donde se
+trabajó, y al abrir el caso en otro computador aparecen los textos sin las
+imágenes.
+
+Para comprobarlo: guarda un caso con fotos, entra con la cuenta del ejecutivo
+desde otro navegador y ábrelo en el historial. Deben verse las láminas.
+
 ### Conectar Dentalink (opcional)
 
 Mientras no esté el token, la página funciona igual que siempre: el presupuesto

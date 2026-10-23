@@ -1058,6 +1058,49 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     },
     guardar:function(clave,blob){return this._pedir('readwrite',function(st){return st.put(blob,clave);});},
     leer:function(clave){return this._pedir('readonly',function(st){return st.get(clave);});},
+
+    /* ── La nube de la clínica ──────────────────────────────────────
+     * Lo de IndexedDB es la copia rápida de este equipo. Lo que hace que
+     * el ejecutivo vea las mismas fotos desde su computador es el bucket
+     * privado `casos`: ruta <clinica>/<caso>/<archivo>, y las políticas
+     * de Storage comparan esa primera carpeta con su clínica.
+     */
+    clinica:null,
+    hayNube:function(){return !!(Store.modo==='supabase'&&window.SB&&this.clinica);},
+    _ruta:function(clave){return this.clinica+'/'+clave;},
+    subir:async function(clave,blob){
+      if(!this.hayNube())return false;
+      var r=await window.SB.storage.from('casos').upload(this._ruta(clave),blob,
+        {upsert:true,contentType:blob.type||'application/octet-stream'});
+      if(r.error)throw new Error(r.error.message);
+      return true;
+    },
+    bajar:async function(clave){
+      if(!this.hayNube())return null;
+      var r=await window.SB.storage.from('casos').download(this._ruta(clave));
+      if(r.error)return null;
+      return r.data||null;
+    },
+    /* Busca primero aquí, y si no está la trae de la nube y la deja cacheada. */
+    obtener:async function(clave){
+      var b=null;
+      try{ b=await this.leer(clave); }catch(e){}
+      if(b)return b;
+      b=await this.bajar(clave);
+      if(b){ try{ await this.guardar(clave,b); }catch(e){} }
+      return b;
+    },
+    borrarNube:async function(id){
+      if(!this.hayNube())return;
+      var base=this.clinica+'/'+id;
+      var caminos=[];
+      for(var i=0;i<2;i++){
+        var sub=i?base+'/doc':base;
+        var r=await window.SB.storage.from('casos').list(sub,{limit:1000});
+        if(!r.error)(r.data||[]).forEach(function(o){if(o.name)caminos.push(sub+'/'+o.name);});
+      }
+      if(caminos.length)await window.SB.storage.from('casos').remove(caminos);
+    },
     claves:function(prefijo){
       return this._pedir('readonly',function(st){
         return st.getAllKeys(IDBKeyRange.bound(prefijo,prefijo+'\uffff'));
@@ -1163,7 +1206,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       e.stopPropagation();
       var c=cases.filter(function(x){return String(x.id)===del.dataset.del;})[0];
       if(!await confirmar('Borrar el caso de '+((c&&c.nombre)||'este paciente'),'Se elimina del historial y no se puede deshacer. Los archivos que ya descargaste no se tocan.','Borrar'))return;
-      try{ await Store.borrar(del.dataset.del); await Archivo.borrarCaso(del.dataset.del).catch(function(){});
+      try{ await Store.borrar(del.dataset.del);
+           await Archivo.borrarCaso(del.dataset.del).catch(function(){});
+           await Archivo.borrarNube(del.dataset.del).catch(function(){});
            await cargarCasos(); aviso('Caso borrado',''); }
       catch(err){ aviso('No se pudo borrar',err.message,true); }
       return;
@@ -1210,26 +1255,67 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
               fecha:val('f-fecha'),estado:estado||'revisado',datos:datosActuales()};
     var id=await Store.guardar(caso);
     casoActual={id:id,nombre:caso.nombre,estado:caso.estado};
-    try{ await guardarFotos(id); await guardarDocs(id); }
-    catch(e){ console.warn('[archivo]',e); aviso('Las fotos no se guardaron',(e&&e.message)||'El archivo local no respondió. Los textos sí quedaron guardados.',true); }
+    var pill=document.getElementById('caso-estado');
+    var decir=function(t){ if(pill){pill.className='pill';pill.textContent=t;} };
+    ultimoGuardado={pendientes:0,fallo:null};
+    try{
+      var cf=await guardarFotos(id,decir);
+      var cd=await guardarDocs(id,decir);
+      ultimoGuardado.pendientes=cf.pendientes+cd.pendientes;
+      ultimoGuardado.fallo=cf.fallo||cd.fallo;
+    }catch(e){
+      console.warn('[archivo]',e);
+      aviso('Las fotos no se guardaron',(e&&e.message)||'El archivo de este equipo no respondió. Los textos sí quedaron guardados.',true);
+    }
+    if(pill){
+      var fotosN=Object.keys(photos).length;
+      pill.className='pill '+(ultimoGuardado.pendientes?'warn':'ok');
+      pill.textContent=ultimoGuardado.pendientes
+        ? 'Guardado aquí · faltan '+ultimoGuardado.pendientes+' por subir'
+        : 'Guardado'+(fotosN?' · '+fotosN+' foto'+(fotosN===1?'':'s'):'')+(Archivo.hayNube()?' · en la clínica':' · en este equipo');
+    }
     await cargarCasos();
     return id;
   }
   /* Las fotos van al archivo local una sola vez: si ya está guardada con
      la misma clave, no se vuelve a escribir. */
-  async function guardarFotos(id){
+  /* Deja las fotos en este equipo y, si hay clínica conectada, también en
+     la nube. Que la nube falle no debe perder lo local: se cuenta y se
+     avisa, y el próximo guardado reintenta lo que quedó sin subir. */
+  async function guardarFotos(id,avisar){
     var ids=Object.keys(photos).filter(function(x){return photos[x].file;});
+    var cuenta={locales:0,subidas:0,pendientes:0,fallo:null};
+    var nube=Archivo.hayNube();
+    var porSubir=nube?ids.filter(function(x){return photos[x].subidaEn!==id+'/'+x;}).length:0;
     for(var i=0;i<ids.length;i++){
       var pf=photos[ids[i]], clave=id+'/'+ids[i];
-      if(pf.guardadaEn===clave)continue;
-      await Archivo.guardar(clave,pf.file);
-      pf.guardadaEn=clave;
+      if(pf.guardadaEn!==clave){ await Archivo.guardar(clave,pf.file); pf.guardadaEn=clave; cuenta.locales++; }
+      if(nube&&pf.subidaEn!==clave){
+        try{
+          await Archivo.subir(clave,pf.file);
+          pf.subidaEn=clave; cuenta.subidas++;
+          if(avisar&&porSubir>1)avisar('Subiendo fotos… '+cuenta.subidas+' de '+porSubir);
+        }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
+      }
     }
+    return cuenta;
   }
 
-  async function guardarDocs(id){
-    var noms=Object.keys(docsGenerados);
-    for(var i=0;i<noms.length;i++) await Archivo.guardar(id+'/doc/'+noms[i],docsGenerados[noms[i]]);
+  var docsSubidos={};
+  async function guardarDocs(id,avisar){
+    var noms=Object.keys(docsGenerados), cuenta={pendientes:0,fallo:null};
+    for(var i=0;i<noms.length;i++){
+      var clave=id+'/doc/'+noms[i];
+      await Archivo.guardar(clave,docsGenerados[noms[i]]);
+      if(Archivo.hayNube()&&!docsSubidos[clave]){
+        try{
+          if(avisar)avisar('Subiendo '+noms[i]+'…');
+          await Archivo.subir(clave,docsGenerados[noms[i]]);
+          docsSubidos[clave]=true;
+        }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
+      }
+    }
+    return cuenta;
   }
 
   /* Rearma las fotos y las láminas del caso tal como quedaron. */
@@ -1239,11 +1325,11 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
     var faltan=0;
     for(var i=0;i<lista.length;i++){
-      var f=lista[i], blob=null;
-      try{ blob=await Archivo.leer(c.id+'/'+f.id); }catch(e){}
+      var f=lista[i], blob=null, clave=c.id+'/'+f.id;
+      try{ blob=await Archivo.obtener(clave); }catch(e){ console.warn('[archivo]',e); }
       if(!blob){ faltan++; continue; }
       photos[f.id]={n:f.n,k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,z:f.z||1,fx:f.fx,fy:f.fy,
-                    u:URL.createObjectURL(blob),guardadaEn:c.id+'/'+f.id,
+                    u:URL.createObjectURL(blob),guardadaEn:clave,subidaEn:Archivo.hayNube()?clave:null,
                     file:new File([blob],(f.n||'foto')+'.jpg',{type:'image/jpeg'})};
     }
     var hay=function(id){return !!photos[id];};
@@ -1347,7 +1433,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     caja.querySelectorAll('.sv').forEach(drawSv);
     document.getElementById('hc-nlam').textContent=vis.length||'—';
     document.getElementById('hc-lam-nota').textContent=
-      arch&&arch.faltan ? 'Faltan '+arch.faltan+' foto'+(arch.faltan===1?'':'s')+': este caso se guardó en otro equipo o se limpió el archivo del navegador.'
+      arch&&arch.faltan ? 'Faltan '+arch.faltan+' foto'+(arch.faltan===1?'':'s')+': se guardaron en otro equipo y no alcanzaron a subirse a la clínica.'
       : arch&&arch.fotos ? 'Las láminas tal como quedaron, con las fotos en su sitio.'
       : 'Este caso se guardó antes de que la página archivara las fotos.';
 
@@ -1368,8 +1454,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var nom=b.dataset.doc, txt=b.textContent;
     b.disabled=true; b.textContent='Buscando…';
     try{
-      var blob=await Archivo.leer(fichaCaso.id+'/doc/'+nom);
-      if(!blob)throw new Error('El archivo no está en este equipo. Se guardó donde se generó.');
+      var blob=await Archivo.obtener(fichaCaso.id+'/doc/'+nom);
+      if(!blob)throw new Error('No encontré ese archivo, ni aquí ni en la clínica. Ábrelo y vuelve a generarlo en la entrega.');
       bajar(blob,nom);
     }catch(err){ aviso('No se pudo abrir el archivo',err.message,true); }
     b.disabled=false; b.textContent=txt;
@@ -2925,7 +3011,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
      el historial no se queda atrás. El primer guardado sí es deliberado
      —el botón, o el final del análisis— para no llenar el historial de
      casos vacíos. */
-  var guardadoPendiente=null, guardando=false;
+  var guardadoPendiente=null, guardando=false, ultimoGuardado={pendientes:0,fallo:null};
   async function guardarBorrador(forzar){
     if(guardando)return;
     if(!forzar&&!casoActual)return;
@@ -2946,7 +3032,15 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     b.disabled=true;
     try{
       await guardarBorrador(true);
-      aviso('Borrador guardado','Queda en el historial con las fotos y las láminas como están ahora.');
+      if(ultimoGuardado.pendientes)
+        aviso('Guardado en este equipo',
+              'Quedaron '+ultimoGuardado.pendientes+' archivo'+(ultimoGuardado.pendientes===1?'':'s')+' sin subir a la clínica'+
+              (ultimoGuardado.fallo?' ('+ultimoGuardado.fallo+')':'')+'. Vuelve a guardar cuando haya conexión.',true);
+      else
+        aviso('Borrador guardado',
+              Archivo.hayNube()
+                ? 'Queda en el historial con sus fotos y láminas. Tu ejecutivo lo ve desde su equipo.'
+                : 'Queda en el historial con sus fotos y láminas, en este equipo.');
     }catch(e){ aviso('No se pudo guardar',e.message,true); }
     b.disabled=false;
   });
@@ -3146,6 +3240,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     }
     gate.hidden=true;
     Store.modo='supabase';
+    Archivo.clinica=p.perfil.clinica_id||null;
     mostrarUsuario(p.perfil);
     await cargarCasos();
   }
