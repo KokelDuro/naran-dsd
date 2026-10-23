@@ -1445,6 +1445,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   async function abrirCaso(c){
     casoActual={id:c.id,nombre:c.nombre,estado:c.estado};
     docsGenerados={};
+    /* La página queda en blanco PRIMERO: así un caso al que le falte
+       algún campo no hereda el texto del caso anterior ni el de ejemplo. */
+    limpiarEjemplo();
     document.getElementById('f-nombre').value=c.nombre||'';
     document.getElementById('f-edad').value=c.edad||'';
     var elRut=document.getElementById('f-rut'); if(elRut)elRut.value=c.rut||(c.datos||{}).rut||'';
@@ -1461,7 +1464,6 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     catch(e){ console.warn('[archivo]',e); }
     /* casos viejos: solo se guardaba si la lámina iba oculta */
     if(!arch.fotos)(d.laminas||[]).forEach(function(l,i){if(slides[i])slides[i].hidden=l.oculta;});
-    limpiarEjemplo();
     try{ restaurarPropuesta(d); }catch(e){ console.warn('[propuesta]',e); }
 
     render(); if(window.growAll2)growAll2(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles();
