@@ -596,13 +596,14 @@ button.usuario:hover{color:var(--ink)}
       </section>
       <section class="card">
         <div class="card-h"><h2>Carpeta del paciente</h2><span class="pill" id="inv-state">Sin archivos</span></div>
-        <p class="hint">Arrastra la carpeta completa o elige los archivos. Se aceptan audios (m4a, mp3, wav) e imágenes (jpg, png, heic).</p>
+        <p class="hint">Todo junto o por separado, da lo mismo. Se aceptan audios (m4a, mp3, wav), imágenes (jpg, png, heic) y la transcripción ya hecha (pdf, txt, srt, vtt).</p>
         <div class="drop" id="drop">
           <input type="file" id="f-dir" webkitdirectory directory multiple hidden>
-          <input type="file" id="f-files" multiple accept="audio/*,image/*,.m4a,.heic" hidden>
+          <input type="file" id="f-files" multiple accept="audio/*,video/*,image/*,.m4a,.heic,.pdf,.txt,.srt,.vtt,.md" hidden>
+          <input type="file" id="f-texto" accept=".pdf,.txt,.srt,.vtt,.md,text/plain,application/pdf" hidden>
           <span class="fi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
           <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">O elígela con los botones. Si en vez de audio tienes la transcripción en PDF o texto, sirve igual: se van sumando.</small></div>
-          <div class="drop-btns"><button class="btn ghost" type="button" id="btn-dir">Elegir carpeta</button><button class="btn ghost" type="button" id="btn-files">Elegir archivos</button></div>
+          <div class="drop-btns"><button class="btn ghost" type="button" id="btn-dir">Elegir carpeta</button><button class="btn ghost" type="button" id="btn-files">Elegir archivos</button><button class="btn ghost" type="button" id="btn-texto">Solo la transcripción</button></div>
         </div>
         <div class="inv">
           <div class="inv-box">
@@ -611,6 +612,10 @@ button.usuario:hover{color:var(--ink)}
             <div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Consulta parte 1.m4a</span><small>27:14</small></div>
             <div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Consulta parte 2.m4a</span><small>14:52</small></div>
             </div>
+          </div>
+          <div class="inv-box">
+            <div class="t">Transcripción <small id="txt-tot">—</small></div>
+            <div id="txt-info" style="font-size:12px;color:var(--muted);line-height:1.5">Opcional: si la consulta quedó en video, súbela aquí y no hace falta el audio.</div>
           </div>
           <div class="inv-box">
             <div class="t">Fotos <small id="fot-tot">—</small></div>
@@ -1873,13 +1878,20 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var seqFoto=0;               /* ids únicos aunque se carguen en varias tandas */
   function pintaInventario(ignorados){
     var tr=transcripcion;
-    document.getElementById('aud-list').innerHTML=(tr?
-      '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span><span title="'+esc(tr.nombre)+'">'+esc(tr.nombre)+'</span><small>'+tr.lineas+' líneas</small></div>':'')+
+    var cajaTxt=document.getElementById('txt-info'), totTxt=document.getElementById('txt-tot');
+    if(cajaTxt){
+      cajaTxt.innerHTML=tr
+        ? '<div class="aud" style="margin:0"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span><span title="'+esc(tr.nombre)+'">'+esc(tr.nombre)+'</span><small>'+tr.lineas+' líneas</small></div>'
+        : 'Opcional: si la consulta quedó en video, súbela aquí y no hace falta el audio.';
+      if(totTxt)totTxt.textContent=tr?'lista · no se usará el audio':'—';
+    }
+    document.getElementById('aud-list').innerHTML=(
       (audios.length?audios.map(function(a){
       return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(a.f.name)+'">'+esc(a.f.name)+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(a.f.size)+'</small></div>';
-    }).join(''):(tr?'':'<div class="ign" style="margin:0"><span>Ningún audio ni transcripción en la carpeta.</span></div>'));
+    }).join(''):(tr?'<div class="ign" style="margin:0"><span>Con la transcripción cargada, el audio no hace falta.</span></div>'
+                   :'<div class="ign" style="margin:0"><span>Ningún audio todavía.</span></div>')));
     var tot=audios.reduce(function(s,a){return s+(a.dur||0);},0);
-    document.getElementById('aud-tot').textContent=tr?'transcripción lista':(audios.length?(tot?mmss(tot)+' en total':audios.length+' archivos'):'—');
+    document.getElementById('aud-tot').textContent=audios.length?(tot?mmss(tot)+' en total':audios.length+' archivos'):'—';
     var ids=Object.keys(photos);
     document.getElementById('strip').innerHTML=ids.map(function(id){var p=photos[id];
       return '<div class="tile '+(p.k||'face')+'" style="cursor:default;width:42px;height:42px" title="'+esc(p.n)+'">'+(p.u?'<img src="'+p.u+'" alt="">':ICON[p.k||'face'])+'</div>';}).join('');
@@ -1984,6 +1996,10 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   document.getElementById('f-dir').addEventListener('change',function(e){
     var fs=[].slice.call(e.target.files),raiz=(fs[0]&&fs[0].webkitRelativePath||'').split('/')[0];
     cargarArchivos(fs,raiz||'Carpeta cargada'); e.target.value='';});
+  document.getElementById('btn-texto').addEventListener('click',function(){document.getElementById('f-texto').click();});
+  document.getElementById('f-texto').addEventListener('change',function(e){
+    if(e.target.files&&e.target.files.length)cargarArchivos([].slice.call(e.target.files),'Transcripción');
+    e.target.value='';});
   document.getElementById('f-files').addEventListener('change',function(e){
     cargarArchivos([].slice.call(e.target.files),e.target.files.length+' archivos'); e.target.value='';});
 
