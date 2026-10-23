@@ -129,6 +129,8 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .gate-err.ok{color:var(--ok)}
 .g-link{background:none;border:0;box-shadow:none;padding:4px;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer;text-align:center}
 .g-link:hover{color:var(--ink);text-decoration:underline}
+body.solo-lectura .case .del{display:none}
+body.solo-lectura #s0 .learn .btn{display:none}
 button.usuario{border:0;background:none;box-shadow:none;font:inherit;cursor:pointer;border-radius:10px;padding:4px 6px}
 button.usuario:hover{color:var(--ink)}
 .usuario{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
@@ -553,6 +555,7 @@ button.usuario:hover{color:var(--ink)}
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" type="button" id="hc-editar">Seguir editando</button>
           <button class="btn ghost" type="button" id="hc-volver">Volver al historial</button>
+          <button class="btn ghost" type="button" id="hc-subir" hidden>Subir las fotos a la clínica</button>
         </div>
       </section>
 
@@ -1107,6 +1110,19 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       if(b){ try{ await this.guardar(clave,b); }catch(e){} }
       return b;
     },
+    /* Qué archivos de este caso ya están arriba. Una consulta y evitamos
+       resubir lo mismo en cada guardado. */
+    listaNube:async function(id){
+      var tiene={};
+      if(!this.hayNube())return tiene;
+      var base=this.clinica+'/'+id;
+      for(var i=0;i<2;i++){
+        var sub=i?base+'/doc':base, pre=i?id+'/doc/':id+'/';
+        var r=await window.SB.storage.from('casos').list(sub,{limit:1000});
+        if(!r.error)(r.data||[]).forEach(function(o){ if(o.name)tiene[pre+o.name]=true; });
+      }
+      return tiene;
+    },
     borrarNube:async function(id){
       if(!this.hayNube())return;
       var base=this.clinica+'/'+id;
@@ -1302,12 +1318,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   async function guardarFotos(id,avisar){
     var ids=Object.keys(photos).filter(function(x){return photos[x].file;});
     var cuenta={locales:0,subidas:0,pendientes:0,fallo:null};
-    var nube=Archivo.hayNube();
-    var porSubir=nube?ids.filter(function(x){return photos[x].subidaEn!==id+'/'+x;}).length:0;
+    var nube=Archivo.hayNube(), yaArriba={};
+    if(nube){ try{ yaArriba=await Archivo.listaNube(id); }catch(e){ console.warn('[nube]',e); } }
+    var porSubir=nube?ids.filter(function(x){return photos[x].subidaEn!==id+'/'+x&&!yaArriba[id+'/'+x];}).length:0;
     for(var i=0;i<ids.length;i++){
       var pf=photos[ids[i]], clave=id+'/'+ids[i];
       if(pf.guardadaEn!==clave){ await Archivo.guardar(clave,pf.file); pf.guardadaEn=clave; cuenta.locales++; }
-      if(nube&&pf.subidaEn!==clave){
+      if(nube&&yaArriba[clave]){ pf.subidaEn=clave; }
+      else if(nube&&pf.subidaEn!==clave){
         try{
           await Archivo.subir(clave,pf.file);
           pf.subidaEn=clave; cuenta.subidas++;
@@ -1320,11 +1338,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
   var docsSubidos={};
   async function guardarDocs(id,avisar){
-    var noms=Object.keys(docsGenerados), cuenta={pendientes:0,fallo:null};
+    var noms=Object.keys(docsGenerados), cuenta={pendientes:0,fallo:null}, yaArriba={};
+    if(noms.length&&Archivo.hayNube()){ try{ yaArriba=await Archivo.listaNube(id); }catch(e){} }
     for(var i=0;i<noms.length;i++){
       var clave=id+'/doc/'+noms[i];
       await Archivo.guardar(clave,docsGenerados[noms[i]]);
-      if(Archivo.hayNube()&&!docsSubidos[clave]){
+      if(Archivo.hayNube()&&!docsSubidos[clave]&&!(yaArriba&&yaArriba[clave])){
         try{
           if(avisar)avisar('Subiendo '+noms[i]+'…');
           await Archivo.subir(clave,docsGenerados[noms[i]]);
@@ -1346,7 +1365,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       try{ blob=await Archivo.obtener(clave); }catch(e){ console.warn('[archivo]',e); }
       if(!blob){ faltan++; continue; }
       photos[f.id]={n:f.n,k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,z:f.z||1,fx:f.fx,fy:f.fy,
-                    u:URL.createObjectURL(blob),guardadaEn:clave,subidaEn:Archivo.hayNube()?clave:null,
+                    u:URL.createObjectURL(blob),guardadaEn:clave,subidaEn:null,
                     file:new File([blob],(f.n||'foto')+'.jpg',{type:'image/jpeg'})};
     }
     var hay=function(id){return !!photos[id];};
@@ -1449,8 +1468,18 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     }).join('')||'<div style="color:var(--muted);font-size:13px">Este caso no alcanzó a tener láminas con fotos.</div>';
     caja.querySelectorAll('.sv').forEach(drawSv);
     document.getElementById('hc-nlam').textContent=vis.length||'—';
+    document.getElementById('hc-editar').hidden=soloLectura;
+    /* ¿quedaron fotos solo en este equipo? se puede empujarlas */
+    var sinSubir=Object.keys(photos).filter(function(id){return photos[id].file&&photos[id].subidaEn!==c.id+'/'+id;});
+    var bs=document.getElementById('hc-subir');
+    if(bs){
+      var puede=!soloLectura&&Archivo.hayNube()&&sinSubir.length;
+      bs.hidden=!puede;
+      if(puede)bs.textContent='Subir '+sinSubir.length+' foto'+(sinSubir.length===1?'':'s')+' a la clínica';
+    }
     document.getElementById('hc-lam-nota').textContent=
       arch&&arch.faltan ? 'Faltan '+arch.faltan+' foto'+(arch.faltan===1?'':'s')+': se guardaron en otro equipo y no alcanzaron a subirse a la clínica.'
+      : (arch&&arch.fotos&&!Archivo.hayNube()&&Store.modo==='supabase') ? 'Las fotos están solo en este equipo: falta crear el almacén compartido de la clínica (05_archivos.sql).'
       : arch&&arch.fotos ? 'Las láminas tal como quedaron, con las fotos en su sitio.'
       : 'Este caso se guardó antes de que la página archivara las fotos.';
 
@@ -1465,6 +1494,17 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     }).join(''):'<div style="color:var(--muted);font-size:13px">Este caso no tiene documentos guardados. Ábrelo y genéralos en la entrega.</div>';
   }
   document.getElementById('hc-volver').addEventListener('click',verHistorial);
+  document.getElementById('hc-subir').addEventListener('click',async function(){
+    var b=this, txt=b.textContent;
+    b.disabled=true; b.textContent='Subiendo…';
+    try{
+      var c=await guardarFotos(casoActual.id,function(t){b.textContent=t;});
+      await cargarCasos();
+      if(c.pendientes)aviso('No se pudieron subir todas','Quedaron '+c.pendientes+(c.fallo?': '+c.fallo:'')+'.',true);
+      else { aviso('Fotos subidas','Ahora tu ejecutivo las ve desde su equipo.'); b.hidden=true; }
+    }catch(e){ aviso('No se pudo subir',e.message,true); }
+    b.disabled=false; b.textContent=txt;
+  });
   document.getElementById('hc-editar').addEventListener('click',function(){ verHistorial(); go(2); });
   document.getElementById('hc-docs').addEventListener('click',async function(e){
     var b=e.target.closest('[data-doc]'); if(!b||!fichaCaso)return;
@@ -3298,6 +3338,24 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     errGate('Te mandamos un correo a '+correo+'.\nAbre el enlace desde este mismo equipo y te deja elegir una contraseña nueva.\n\nSi no llega en unos minutos, revisa el spam o pídele al administrador de la clínica que te la cambie desde Supabase.');
   });
 
+  /* ── Quién puede qué ────────────────────────────────────────────────
+   * Las políticas de la base ya impiden que un ejecutivo cree, edite o
+   * borre casos. Esto es lo mismo, pero en pantalla: que no vea botones
+   * que no van a funcionar. Su página es el historial.
+   */
+  var rolActual='', soloLectura=false;
+  function aplicarRol(rol){
+    rolActual=rol||'';
+    soloLectura=(rolActual==='ejecutivo');
+    document.getElementById('seg').hidden=soloLectura;
+    document.getElementById('btn-borrador').hidden=soloLectura;
+    var nuevo=document.getElementById('btn-nuevo'); if(nuevo)nuevo.hidden=soloLectura;
+    document.body.classList.toggle('solo-lectura',soloLectura);
+    var h=document.querySelector('#s0 .head p');
+    if(h&&soloLectura)h.textContent='Los casos que el equipo ya trabajó. Ábrelos para ver las láminas y descargar los documentos.';
+    if(soloLectura)go(0);
+  }
+
   function mostrarUsuario(perfil){
     var u=document.getElementById('usuario');
     if(!perfil){u.hidden=true;document.getElementById('btn-salir').hidden=true;return;}
@@ -3348,6 +3406,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     Store.modo='supabase';
     Archivo.clinica=p.perfil.clinica_id||null;
     mostrarUsuario(p.perfil);
+    aplicarRol(p.perfil.rol);
     await cargarCasos();
   }
 
