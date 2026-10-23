@@ -1278,7 +1278,11 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     }
     var fila=e.target.closest('.case'); if(!fila)return;
     var caso=cases.filter(function(x){return String(x.id)===fila.dataset.id;})[0];
-    if(caso)abrirCaso(caso).catch(function(err){console.error('[abrir]',err);aviso('No se pudo abrir el caso',err.message,true);});
+    if(caso)abrirCaso(caso).catch(function(err){
+      console.error('[abrir]',err);
+      aviso('No se pudo abrir el caso de '+(caso.nombre||'este paciente'),
+            (err&&err.message||String(err))+'. Si se repite, cuéntame qué dice esta línea.',true);
+    });
   });
 
   /* ── guardar y reabrir ───────────────────────────────────────────── */
@@ -1425,7 +1429,6 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   /* Rearma las fotos y las láminas del caso tal como quedaron. */
   async function restaurarArchivo(c){
     var d=c.datos||{}, lista=d.fotos||[];
-    if(!lista.length)return {fotos:0,faltan:0};
     Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
     var faltan=0;
     for(var i=0;i<lista.length;i++){
@@ -1437,7 +1440,10 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
                     file:new File([blob],(f.n||'foto')+'.jpg',{type:'image/jpeg'})};
     }
     var hay=function(id){return !!photos[id];};
-    if((d.laminas||[]).length&&d.laminas[0].p){
+    /* Las láminas se rearman aunque el caso no tenga ni una foto: ahí
+       viven las láminas que se agregaron, las ocultas y la disposición
+       elegida, y antes se perdían todas. */
+    if((d.laminas||[]).length&&d.laminas.some(function(l){return l.p;})){
       slides=d.laminas.map(function(l){
         var sl={t:l.t,hidden:!!l.oculta};
         if(l.fixed)sl.fixed=true;
@@ -1496,12 +1502,19 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(!arch.fotos)(d.laminas||[]).forEach(function(l,i){if(slides[i])slides[i].hidden=l.oculta;});
     try{ restaurarPropuesta(d); }catch(e){ console.warn('[propuesta]',e); }
 
-    render(); if(window.growAll2)growAll2(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles();
+    try{ render(); if(window.growAll2)growAll2(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles(); }
+    catch(e){ console.error('[abrir caso] al dibujar',e); }
     var av=document.getElementById('caso-estado');
     if(av){av.className='pill '+(arch.faltan?'warn':'ok');
       av.textContent=arch.fotos?('Caso reabierto · '+arch.fotos+' foto'+(arch.fotos===1?'':'s')+(arch.faltan?' · faltan '+arch.faltan:'')):
                                  'Caso reabierto · sin fotos guardadas';}
-    await mostrarFicha(c,arch);
+    try{ await mostrarFicha(c,arch); }
+    catch(e){
+      console.error('[abrir caso] al mostrar la ficha',e);
+      /* el caso igual quedó cargado: se entra a editarlo y se avisa */
+      verHistorial(); go(2);
+      aviso('El caso se abrió, pero la ficha no','No se pudo dibujar el resumen ('+(e&&e.message||e)+'). Los textos y las fotos sí están.',true);
+    }
   }
 
   /* ── La ficha del caso: lo que quedó hecho ──────────────────────────── */
@@ -3082,11 +3095,20 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       y=240;rows.forEach(function(r){var fg=r[4]?'f6f9f8':'16201f',sub=r[4]?'cfe3dd':'5d6f6d';h+='<div class="cd'+(r[4]?' on':'')+'" style="left:58px;top:'+y+'px;width:845px;height:75px;border-radius:12px"></div>'+tx(82,y+13,346,30,r[0],13,{serif:true,bold:true,color:fg})+tx(82,y+42,442,24,r[1],9.5,{color:sub})+tx(595,y+12,283,38,r[2],17,{serif:true,bold:true,color:fg,align:'right'})+tx(595,y+46,283,21,r[3],8.5,{color:sub,align:'right'});y+=86;});
       return {cls:'',h:h+tx(58,499,845,30,'Valores en pesos chilenos · Propuesta válida por 15 días · La alternativa se cotiza aparte si la eliges',8.5,{color:'5d6f6d'})};}
   };
-  function slideFor(el){var k=el.dataset.kind;if(k==='dsd'){var sl=slides[+el.dataset.si];return {kind:tipoDe(sl),sl:sl,title:sl.t};}
+  function slideFor(el){var k=el.dataset.kind;
+    if(k==='dsd'){
+      /* al abrir otro caso cambian las láminas, y en el DOM pueden quedar
+         vistas previas del caso anterior apuntando a una que ya no está */
+      var sl=slides[+el.dataset.si];
+      return sl?{kind:tipoDe(sl),sl:sl,title:sl.t}:null;
+    }
     if(k==='tucaso'||k==='frase'){return {kind:k,sl:slides.filter(function(x){return x.t==='Tu caso';})[0],title:k==='tucaso'?'Tu caso':'Frase síntesis'};}
     return {kind:k,sl:null,title:k==='propA'?'Tu plan, paso a paso':'Inversión en tu sonrisa'};}
   var ro=new ResizeObserver(function(es){es.forEach(function(e){var inn=e.target.querySelector('.sv-in');if(inn)inn.style.transform='scale('+(e.contentRect.width/960)+')';});});
-  function drawSv(el){var d=slideFor(el),r=SLIDE[d.kind](d.sl);el.innerHTML='<div class="sv-in '+r.cls+'">'+r.h+'</div>';el.dataset.title=d.title;el.querySelector('.sv-in').style.transform='scale('+(el.clientWidth/960)+')';if(!el.dataset.ro){ro.observe(el);el.dataset.ro=1;}}
+  function drawSv(el){
+    var d=slideFor(el);
+    if(!d||!SLIDE[d.kind]){ el.innerHTML=''; el.dataset.title=''; return; }
+    var r=SLIDE[d.kind](d.sl);el.innerHTML='<div class="sv-in '+r.cls+'">'+r.h+'</div>';el.dataset.title=d.title;el.querySelector('.sv-in').style.transform='scale('+(el.clientWidth/960)+')';if(!el.dataset.ro){ro.observe(el);el.dataset.ro=1;}}
   window.refreshPreviews=function(scope){
     if(scope!=='prop'){document.querySelectorAll('.sv[data-kind="dsd"],.sv[data-kind="tucaso"],.sv[data-kind="frase"]').forEach(drawSv);
       var list=document.getElementById('dsd-list');if(list){var vis=slides.map(function(x,i){return [x,i];}).filter(function(a){return !a[0].hidden&&(a[0].fixed||a[0].p.length);});
@@ -3542,7 +3564,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function laminasDSD(){
     return slides.map(function(sl,i){return {sl:sl,i:i};})
       .filter(function(a){return !a.sl.hidden&&(a.sl.fixed||(a.sl.p&&a.sl.p.length));})
-      .map(function(a){return {kind:tipoDe(a.sl),sl:a.sl};});
+      .map(function(a){return {kind:tipoDe(a.sl),sl:a.sl};})
+      .filter(function(a){return !!SLIDE[a.kind];});
   }
   function laminasPropuesta(){ return [{kind:'propA',sl:null},{kind:'propB',sl:null}]; }
 
