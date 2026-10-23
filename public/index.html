@@ -1292,8 +1292,16 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var decir=function(t){ if(pill){pill.className='pill';pill.textContent=t;} };
     ultimoGuardado={pendientes:0,fallo:null};
     try{
-      var cf=await guardarFotos(id,decir);
-      var cd=await guardarDocs(id,decir);
+      /* Preguntar qué hay arriba cuesta dos consultas: solo vale la pena
+         si de verdad queda algo por subir. Pasado el primer guardado, no. */
+      var yaArriba={};
+      if(Archivo.hayNube()){
+        var falta=Object.keys(photos).some(function(x){return photos[x].file&&photos[x].subidaEn!==id+'/'+x;})
+               || Object.keys(docsGenerados).some(function(nm){return !docsSubidos[id+'/doc/'+nm];});
+        if(falta){ try{ yaArriba=await Archivo.listaNube(id); }catch(e){ console.warn('[nube]',e); } }
+      }
+      var cf=await guardarFotos(id,decir,yaArriba);
+      var cd=await guardarDocs(id,decir,yaArriba);
       ultimoGuardado.pendientes=cf.pendientes+cd.pendientes;
       ultimoGuardado.fallo=cf.fallo||cd.fallo;
     }catch(e){
@@ -1315,42 +1323,72 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   /* Deja las fotos en este equipo y, si hay clínica conectada, también en
      la nube. Que la nube falle no debe perder lo local: se cuenta y se
      avisa, y el próximo guardado reintenta lo que quedó sin subir. */
-  async function guardarFotos(id,avisar){
+  /* Varias subidas a la vez. De a una, veinte fotos son veinte idas y
+     vueltas en fila; de a cuatro, el tiempo baja a una fracción sin
+     saturar la conexión de la clínica. */
+  async function enParalelo(lista,max,fn){
+    var i=0, obreros=[];
+    for(var w=0;w<Math.min(max,lista.length);w++){
+      obreros.push((async function(){ while(i<lista.length){ await fn(lista[i++]); } })());
+    }
+    await Promise.all(obreros);
+  }
+
+  async function guardarFotos(id,avisar,yaArriba){
     var ids=Object.keys(photos).filter(function(x){return photos[x].file;});
     var cuenta={locales:0,subidas:0,pendientes:0,fallo:null};
-    var nube=Archivo.hayNube(), yaArriba={};
-    if(nube){ try{ yaArriba=await Archivo.listaNube(id); }catch(e){ console.warn('[nube]',e); } }
-    var porSubir=nube?ids.filter(function(x){return photos[x].subidaEn!==id+'/'+x&&!yaArriba[id+'/'+x];}).length:0;
+
+    /* primero el equipo: es inmediato y es lo que no se puede perder */
     for(var i=0;i<ids.length;i++){
       var pf=photos[ids[i]], clave=id+'/'+ids[i];
       if(pf.guardadaEn!==clave){ await Archivo.guardar(clave,pf.file); pf.guardadaEn=clave; cuenta.locales++; }
-      if(nube&&yaArriba[clave]){ pf.subidaEn=clave; }
-      else if(nube&&pf.subidaEn!==clave){
-        try{
-          await Archivo.subir(clave,pf.file);
-          pf.subidaEn=clave; cuenta.subidas++;
-          if(avisar&&porSubir>1)avisar('Subiendo fotos… '+cuenta.subidas+' de '+porSubir);
-        }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
-      }
     }
+    if(!Archivo.hayNube())return cuenta;
+
+    yaArriba=yaArriba||{};
+    var pend=ids.filter(function(x){
+      var c=id+'/'+x;
+      if(yaArriba[c]){ photos[x].subidaEn=c; return false; }
+      return photos[x].subidaEn!==c;
+    });
+    if(!pend.length)return cuenta;
+
+    var t0=Date.now();
+    await enParalelo(pend,4,async function(x){
+      var clave=id+'/'+x;
+      try{
+        await Archivo.subir(clave,photos[x].file);
+        photos[x].subidaEn=clave; cuenta.subidas++;
+        if(avisar&&pend.length>1)avisar('Subiendo fotos… '+cuenta.subidas+' de '+pend.length);
+      }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
+    });
+    console.info('[nube] '+cuenta.subidas+' fotos en '+Math.round((Date.now()-t0)/100)/10+' s');
     return cuenta;
   }
 
   var docsSubidos={};
-  async function guardarDocs(id,avisar){
-    var noms=Object.keys(docsGenerados), cuenta={pendientes:0,fallo:null}, yaArriba={};
-    if(noms.length&&Archivo.hayNube()){ try{ yaArriba=await Archivo.listaNube(id); }catch(e){} }
-    for(var i=0;i<noms.length;i++){
-      var clave=id+'/doc/'+noms[i];
-      await Archivo.guardar(clave,docsGenerados[noms[i]]);
-      if(Archivo.hayNube()&&!docsSubidos[clave]&&!(yaArriba&&yaArriba[clave])){
-        try{
-          if(avisar)avisar('Subiendo '+noms[i]+'…');
-          await Archivo.subir(clave,docsGenerados[noms[i]]);
-          docsSubidos[clave]=true;
-        }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
-      }
-    }
+  async function guardarDocs(id,avisar,yaArriba){
+    var noms=Object.keys(docsGenerados), cuenta={pendientes:0,fallo:null};
+    yaArriba=yaArriba||{};
+    for(var i=0;i<noms.length;i++) await Archivo.guardar(id+'/doc/'+noms[i],docsGenerados[noms[i]]);
+    if(!Archivo.hayNube())return cuenta;
+
+    var pend=noms.filter(function(nm){
+      var c=id+'/doc/'+nm;
+      if(yaArriba[c]){ docsSubidos[c]=true; return false; }
+      return !docsSubidos[c];
+    });
+    if(!pend.length)return cuenta;
+
+    var hechos=0;
+    await enParalelo(pend,2,async function(nm){
+      var clave=id+'/doc/'+nm;
+      try{
+        await Archivo.subir(clave,docsGenerados[nm]);
+        docsSubidos[clave]=true; hechos++;
+        if(avisar)avisar('Subiendo documentos… '+hechos+' de '+pend.length);
+      }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
+    });
     return cuenta;
   }
 
@@ -1498,7 +1536,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var b=this, txt=b.textContent;
     b.disabled=true; b.textContent='Subiendo…';
     try{
-      var c=await guardarFotos(casoActual.id,function(t){b.textContent=t;});
+      var yaArriba={}; try{ yaArriba=await Archivo.listaNube(casoActual.id); }catch(e){}
+      var c=await guardarFotos(casoActual.id,function(t){b.textContent=t;},yaArriba);
       await cargarCasos();
       if(c.pendientes)aviso('No se pudieron subir todas','Quedaron '+c.pendientes+(c.fallo?': '+c.fallo:'')+'.',true);
       else { aviso('Fotos subidas','Ahora tu ejecutivo las ve desde su equipo.'); b.hidden=true; }
