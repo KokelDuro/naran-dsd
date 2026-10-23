@@ -1383,7 +1383,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     });
     if(!pend.length)return cuenta;
 
-    var t0=Date.now();
+    var t0=performance.now();
     await enParalelo(pend,4,async function(x){
       var clave=id+'/'+x;
       try{
@@ -1392,7 +1392,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         if(avisar&&pend.length>1)avisar('Subiendo fotos… '+cuenta.subidas+' de '+pend.length);
       }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
     });
-    console.info('[nube] '+cuenta.subidas+' fotos en '+Math.round((Date.now()-t0)/100)/10+' s');
+    Tiempos.anotar('subir fotos a la clínica',performance.now()-t0,cuenta.subidas+' fotos');
     return cuenta;
   }
 
@@ -1659,6 +1659,36 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var photos={p1:{n:'IMG_0231',k:'face'},p2:{n:'IMG_0232',k:'face'},p3:{n:'IMG_0235',k:'face'},p4:{n:'IMG_0236',k:'face'},p5:{n:'IMG_0240',k:'smile'},p6:{n:'IMG_0241',k:'smile'},p7:{n:'IMG_0242',k:'smile',rv:true},p8:{n:'scan_front',k:'scan'},p9:{n:'scan_sup',k:'scan'},p10:{n:'scan_inf',k:'scan'},p11:{n:'scan_lat',k:'scan',rv:true},p12:{n:'pano_2026',k:'rx'}};
   var slides=[{t:'Portada',fixed:true},{t:'Tu caso',p:[],max:1},{t:'Frase síntesis',fixed:true},{t:'Retrato',p:[],max:2},{t:'Perfiles',p:[],max:4},{t:'Sonrisa',p:[],max:4},{t:'Escaneo intraoral',p:[],max:6},{t:'Mapas oclusales',p:[],max:6},{t:'Rx panorámica',p:[],max:4},{t:'Rx periapical',p:[],max:6},{t:'Cierre',fixed:true}];
   var tray=['p11'];
+  /* ── Dónde se va el tiempo ──────────────────────────────────────────
+   * Cada vez que algo se siente lento hay que adivinar qué fue: preparar
+   * las fotos, mandarlas a Gemini, subirlas a la clínica o armar los
+   * documentos. Esto lo anota. En la consola queda `tiempos()`, y lo
+   * que pase de unos segundos se dice también en pantalla.
+   */
+  var Tiempos={
+    lista:[],
+    anotar:function(paso,ms,detalle){
+      this.lista.push({paso:paso,segundos:Math.round(ms/100)/10,detalle:detalle||''});
+      if(this.lista.length>60)this.lista.shift();
+      console.info('[tiempo] '+paso+': '+(Math.round(ms/100)/10)+' s'+(detalle?' ('+detalle+')':''));
+    },
+    async medir(paso,fn,detalle){
+      var t=performance.now();
+      try{ return await fn(); }
+      finally{ this.anotar(paso,performance.now()-t,typeof detalle==='function'?detalle():detalle); }
+    },
+    /* los pasos lentos del último rato, para contarlos en una línea */
+    resumen:function(desde){
+      return this.lista.filter(function(x){return x.segundos>=1;})
+        .slice(desde||-6)
+        .map(function(x){return x.paso+' '+x.segundos+' s';}).join(' · ');
+    }
+  };
+  window.tiempos=function(){
+    if(console.table)console.table(Tiempos.lista); else console.log(Tiempos.lista);
+    return Tiempos.lista;
+  };
+
   function tileHTML(id){var p=photos[id];
     return '<div class="tile '+p.k+'" data-id="'+id+'" title="'+esc(p.n)+'">'+
       (p.u?'<img src="'+p.u+'" alt="">':ICON[p.k])+
@@ -2097,6 +2127,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
        de a cuatro el navegador usa los núcleos que tiene. El reparto en
        láminas se hace después y en orden, para que no cambie nada. */
     if(fot.length){
+      var tFotos=performance.now();
       var preparadas=new Array(fot.length), hechas=0;
       var indices=fot.map(function(_,i){return i;});
       await enParalelo(indices,4,async function(j){
@@ -2107,6 +2138,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         hechas++;
         document.getElementById('drop-s').textContent='Preparando fotos… '+hechas+' de '+fot.length;
       });
+      Tiempos.anotar('preparar fotos',performance.now()-tFotos,fot.length+' fotos');
       for(var j=0;j<fot.length;j++){
         var it=preparadas[j];
         if(!it){ ilegibles.push(fot[j].name); continue; }
@@ -2400,9 +2432,10 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
                  :seg<espera*0.6?'Ordenando lo que se dijo…':'Redactando los documentos…';
         paso(Math.min(95,pct),etapa,'Van '+mmss(seg)+(espera>45?' · suele tardar cerca de '+mmss(espera):''));
       },500);
-      var r;
+      var r, tAnalisis=performance.now();
       try{ r=await fetch('/api/analizar',{method:'POST',headers:cab,body:fd}); }
-      finally{ clearInterval(reloj); }
+      finally{ clearInterval(reloj); Tiempos.anotar('analizar la consulta',performance.now()-tAnalisis,
+        (transcripcion?'con transcripción':audios.length+' audios')+' · '+Object.keys(photos).length+' fotos'); }
       var data=await r.json().catch(function(){return {error:'Respuesta ilegible del servidor'};});
       if(!r.ok||!data.ok){
         var m=data.error||('Error '+r.status);
@@ -2415,7 +2448,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       if(window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();
       /* hay trabajo de verdad: el caso entra al historial como borrador */
       guardarBorrador(true).catch(function(e){console.warn('[borrador]',e);});
-      paso(100,'Listo','Analizado con '+esc(data.modelo||'Gemini')+(data.segundos?' en '+data.segundos+' s':'')+'. Revisa los textos antes de generar nada.');
+      paso(100,'Listo',Tiempos.resumen(-3)+'. Analizado con '+esc(data.modelo||'Gemini')+(data.segundos?' en '+data.segundos+' s':'')+'. Revisa los textos antes de generar nada.');
       setTimeout(function(){prog.hidden=true;},2500);
       go(2);
     }catch(e){ console.error('[analizar]',e); paso(100,'No se pudo analizar',esc(e.message||String(e)),true); }
@@ -3481,6 +3514,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   ];
 
   async function generarArchivo(clave,nombre,paso){
+    return Tiempos.medir('armar '+clave,function(){ return generarArchivoAhora(clave,nombre,paso); });
+  }
+  async function generarArchivoAhora(clave,nombre,paso){
     if(clave==='dsd-pdf')          await pdfDeLaminas(laminasDSD(),nombre,paso);
     else if(clave==='dsd-pptx')    await pptxDeLaminas(laminasDSD(),nombre,paso);
     else if(clave==='prop-pdf')    await pdfDeLaminas(laminasPropuesta(),nombre,paso);
