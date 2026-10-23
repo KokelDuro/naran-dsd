@@ -495,6 +495,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       <button role="tab" data-go="5" aria-selected="false"><span class="k">5</span><span class="t">Entrega</span></button>
     </nav>
     <div class="bar-r"><span class="usuario" id="usuario" hidden><span id="u-nombre"></span><span class="rol" id="u-rol"></span></span><span class="st"><span class="dot"></span>Gemini · gratis</span><button class="icn" id="btn-salir" hidden aria-label="Cerrar sesión" title="Cerrar sesión"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+<button class="icn" id="btn-borrador" aria-label="Guardar borrador" title="Guardar borrador"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></button>
       <button class="icn" id="go-hist" data-go="0" aria-label="Historial" title="Historial"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 7v5l3 2"/></svg></button></div>
   </div>
 </header>
@@ -520,7 +521,7 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
       <div class="stat"><span class="v">—</span><span class="l">Fotos reubicadas por caso</span><span class="t">se mide desde el 2º caso</span></div>
     </div>
 
-    <div class="hist">
+    <div class="hist" id="hist-lista">
       <section class="card">
         <div class="card-h"><h2>Pacientes</h2><input class="in" id="h-q" placeholder="Buscar paciente" style="max-width:220px;padding:8px 12px"></div>
         <p class="hint">Abre un caso para reeditar textos o láminas y volver a generar el DSD.</p>
@@ -540,6 +541,29 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
           <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn ghost" style="flex:1;justify-content:center">Exportar historial</button><button class="btn ghost" style="flex:1;justify-content:center">Importar</button></div>
         </section>
       </aside>
+    </div>
+
+    <div id="hist-caso" hidden style="display:grid;gap:18px">
+      <section class="card">
+        <div class="card-h"><h2 id="hc-nombre">—</h2><span class="pill" id="hc-estado"></span></div>
+        <p class="hint" id="hc-sub"></p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" type="button" id="hc-editar">Seguir editando</button>
+          <button class="btn ghost" type="button" id="hc-volver">Volver al historial</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><h2>Láminas</h2><span class="pill" id="hc-nlam">—</span></div>
+        <p class="hint" id="hc-lam-nota">Las láminas tal como quedaron, con las fotos en su sitio.</p>
+        <div class="sv-list" id="hc-laminas" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><h2>Documentos</h2><span class="pill" id="hc-ndoc">—</span></div>
+        <p class="hint">Los archivos que se generaron en la entrega, guardados tal cual. No hay que volver a hacerlos.</p>
+        <div id="hc-docs" style="display:grid;gap:10px"></div>
+      </section>
     </div>
   </div>
 
@@ -1004,6 +1028,58 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   /* ── dónde viven los casos ────────────────────────────────────────
    * Supabase cuando esté configurado; mientras tanto, este mismo equipo.
    * La interfaz es la misma, así que el resto del código no cambia.  */
+  /* ── Archivo del caso: fotos y documentos ──────────────────────────
+   * El texto del caso viaja a Supabase, pero las fotos clínicas y los PDF
+   * pesan demasiado para una columna JSON y son material del paciente: se
+   * quedan en este equipo, en IndexedDB. Un caso reabierto en otro
+   * computador muestra los textos; las imágenes están donde se trabajó.
+   */
+  var Archivo={
+    _db:null,
+    _abrir:function(){
+      var yo=this;
+      if(yo._db)return Promise.resolve(yo._db);
+      return new Promise(function(ok,mal){
+        if(!window.indexedDB)return mal(new Error('Este navegador no puede guardar archivos'));
+        var p=indexedDB.open('naran-archivo',1);
+        p.onupgradeneeded=function(){var db=p.result;if(!db.objectStoreNames.contains('blobs'))db.createObjectStore('blobs');};
+        p.onsuccess=function(){yo._db=p.result;ok(yo._db);};
+        p.onerror=function(){mal(p.error||new Error('No se pudo abrir el archivo local'));};
+      });
+    },
+    _pedir:async function(modo,fn){
+      var db=await this._abrir();
+      return new Promise(function(ok,mal){
+        var t=db.transaction('blobs',modo), r=fn(t.objectStore('blobs'));
+        t.oncomplete=function(){ok(r?r.result:null);};
+        t.onerror=function(){mal(t.error||new Error('Falló el archivo local'));};
+        t.onabort=function(){mal(t.error||new Error('Se canceló el guardado'));};
+      });
+    },
+    guardar:function(clave,blob){return this._pedir('readwrite',function(st){return st.put(blob,clave);});},
+    leer:function(clave){return this._pedir('readonly',function(st){return st.get(clave);});},
+    claves:function(prefijo){
+      return this._pedir('readonly',function(st){
+        return st.getAllKeys(IDBKeyRange.bound(prefijo,prefijo+'\uffff'));
+      });
+    },
+    borrarCaso:async function(id){
+      var ks=await this.claves(id+'/');
+      if(!ks||!ks.length)return;
+      return this._pedir('readwrite',function(st){ks.forEach(function(k){st.delete(k);});return null;});
+    },
+    /* Cuánto ocupa todo, para poder decirlo en pantalla. */
+    espacio:async function(){
+      try{
+        if(navigator.storage&&navigator.storage.estimate){
+          var e=await navigator.storage.estimate();
+          return {usado:e.usage||0,tope:e.quota||0};
+        }
+      }catch(e){}
+      return null;
+    }
+  };
+
   var Store={
     modo:'local',
     _leer:function(){try{return JSON.parse(localStorage.getItem('naran-casos')||'[]');}catch(e){return [];}},
@@ -1012,13 +1088,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       if(this.modo==='supabase'&&window.SB){
         var r=await window.SB.from('casos').select('*').order('creado_en',{ascending:false});
         if(r.error)throw new Error(r.error.message);
-        return (r.data||[]).map(function(c){return {id:c.id,nombre:c.paciente_nombre,edad:c.paciente_edad,fecha:c.fecha_consulta,estado:c.estado,datos:c.datos||{},creado:c.creado_en};});
+        return (r.data||[]).map(function(c){return {id:c.id,nombre:c.paciente_nombre,edad:c.paciente_edad,fecha:c.fecha_consulta,estado:c.estado,datos:c.datos||{},rut:(c.datos||{}).rut||'',creado:c.creado_en};});
       }
       return this._leer();
     },
     guardar:async function(caso){
       if(this.modo==='supabase'&&window.SB){
-        var fila={paciente_nombre:caso.nombre,paciente_edad:caso.edad?+caso.edad:null,fecha_consulta:caso.fecha||null,estado:caso.estado,datos:caso.datos};
+        var datos=Object.assign({},caso.datos,{rut:caso.rut||''});
+        var fila={paciente_nombre:caso.nombre,paciente_edad:caso.edad?+caso.edad:null,fecha_consulta:caso.fecha||null,estado:caso.estado,datos:datos};
         var r=caso.id?await window.SB.from('casos').update(fila).eq('id',caso.id).select().single()
                      :await window.SB.from('casos').insert(fila).select().single();
         if(r.error)throw new Error(r.error.message);
@@ -1086,13 +1163,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       e.stopPropagation();
       var c=cases.filter(function(x){return String(x.id)===del.dataset.del;})[0];
       if(!await confirmar('Borrar el caso de '+((c&&c.nombre)||'este paciente'),'Se elimina del historial y no se puede deshacer. Los archivos que ya descargaste no se tocan.','Borrar'))return;
-      try{ await Store.borrar(del.dataset.del); await cargarCasos(); aviso('Caso borrado',''); }
+      try{ await Store.borrar(del.dataset.del); await Archivo.borrarCaso(del.dataset.del).catch(function(){});
+           await cargarCasos(); aviso('Caso borrado',''); }
       catch(err){ aviso('No se pudo borrar',err.message,true); }
       return;
     }
     var fila=e.target.closest('.case'); if(!fila)return;
     var caso=cases.filter(function(x){return String(x.id)===fila.dataset.id;})[0];
-    if(caso)abrirCaso(caso);
+    if(caso)abrirCaso(caso).catch(function(err){console.error('[abrir]',err);aviso('No se pudo abrir el caso',err.message,true);});
   });
 
   /* ── guardar y reabrir ───────────────────────────────────────────── */
@@ -1100,7 +1178,27 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var d={};
     IDS_TXT.forEach(function(id){var el=document.getElementById(id);if(el)d[id]=el.value;});
     d.notas=val('f-notas');
-    d.laminas=slides.map(function(sl){return {t:sl.t,oculta:!!sl.hidden,fotos:(sl.p||[]).length};});
+    /* las láminas con sus fotos, para rearmarlas tal cual al reabrir */
+    d.laminas=slides.map(function(sl){
+      return {t:sl.t,oculta:!!sl.hidden,fixed:!!sl.fixed,kind:sl.kind||null,
+              extra:!!sl.extra,max:sl.max||0,p:(sl.p||[]).slice()};
+    });
+    d.tray=tray.slice();
+    /* de cada foto, lo necesario para volver a montarla: el archivo va aparte */
+    d.fotos=Object.keys(photos).filter(function(id){return !!photos[id].u;}).map(function(id){
+      var f=photos[id];
+      return {id:id,n:f.n||'',k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,
+              z:f.z||1,fx:f.fx==null?0.5:f.fx,fy:f.fy==null?0.5:f.fy};
+    });
+    /* la propuesta: prestaciones, fases y de dónde salieron los montos */
+    d.archivos=Object.keys(docsGenerados).map(function(nom){
+      var b=docsGenerados[nom];
+      return {nombre:nom,tam:b.size||0,tipo:b.type||''};
+    });
+    d.prop={prest:(prest||[]).map(function(r){return r.slice();}),grupos:(grupos||[]).slice(),
+            fasesExtra:(fasesExtra||[]).slice(),faseOff:Object.assign({},faseOff),
+            resumen:resumenPDF?Object.assign({},resumenPDF):null,fuente:fuentePresupuesto,
+            dl:DL&&DL.paciente?{paciente:DL.paciente,tratamiento:DL.tratamiento}:null};
     d.citas=[].slice.call(document.querySelectorAll('#s2 .quote')).filter(function(q){return !q.hidden&&q.querySelector('b');})
       .map(function(q){return {id:q.id,html:q.innerHTML};});
     d.transcripcion=document.getElementById('trans-body').innerHTML;
@@ -1111,15 +1209,85 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var caso={id:casoActual&&casoActual.id,nombre:(val('f-nombre')||'').trim()||'Sin nombre',edad:val('f-edad'),rut:val('f-rut'),
               fecha:val('f-fecha'),estado:estado||'revisado',datos:datosActuales()};
     var id=await Store.guardar(caso);
-    casoActual={id:id,nombre:caso.nombre};
+    casoActual={id:id,nombre:caso.nombre,estado:caso.estado};
+    try{ await guardarFotos(id); await guardarDocs(id); }
+    catch(e){ console.warn('[archivo]',e); aviso('Las fotos no se guardaron',(e&&e.message)||'El archivo local no respondió. Los textos sí quedaron guardados.',true); }
     await cargarCasos();
     return id;
   }
-  function abrirCaso(c){
-    casoActual={id:c.id,nombre:c.nombre};
+  /* Las fotos van al archivo local una sola vez: si ya está guardada con
+     la misma clave, no se vuelve a escribir. */
+  async function guardarFotos(id){
+    var ids=Object.keys(photos).filter(function(x){return photos[x].file;});
+    for(var i=0;i<ids.length;i++){
+      var pf=photos[ids[i]], clave=id+'/'+ids[i];
+      if(pf.guardadaEn===clave)continue;
+      await Archivo.guardar(clave,pf.file);
+      pf.guardadaEn=clave;
+    }
+  }
+
+  async function guardarDocs(id){
+    var noms=Object.keys(docsGenerados);
+    for(var i=0;i<noms.length;i++) await Archivo.guardar(id+'/doc/'+noms[i],docsGenerados[noms[i]]);
+  }
+
+  /* Rearma las fotos y las láminas del caso tal como quedaron. */
+  async function restaurarArchivo(c){
+    var d=c.datos||{}, lista=d.fotos||[];
+    if(!lista.length)return {fotos:0,faltan:0};
+    Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
+    var faltan=0;
+    for(var i=0;i<lista.length;i++){
+      var f=lista[i], blob=null;
+      try{ blob=await Archivo.leer(c.id+'/'+f.id); }catch(e){}
+      if(!blob){ faltan++; continue; }
+      photos[f.id]={n:f.n,k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,z:f.z||1,fx:f.fx,fy:f.fy,
+                    u:URL.createObjectURL(blob),guardadaEn:c.id+'/'+f.id,
+                    file:new File([blob],(f.n||'foto')+'.jpg',{type:'image/jpeg'})};
+    }
+    var hay=function(id){return !!photos[id];};
+    if((d.laminas||[]).length&&d.laminas[0].p){
+      slides=d.laminas.map(function(l){
+        var sl={t:l.t,hidden:!!l.oculta};
+        if(l.fixed)sl.fixed=true;
+        else { sl.p=(l.p||[]).filter(hay); sl.max=l.max||4; if(l.kind)sl.kind=l.kind; if(l.extra)sl.extra=true; }
+        return sl;
+      });
+      tray=(d.tray||[]).filter(hay);
+    }
+    /* cualquier foto que quedó sin lámina vuelve a «Sin asignar» */
+    Object.keys(photos).forEach(function(id){
+      var puesta=tray.indexOf(id)>=0||slides.some(function(sl){return sl.p&&sl.p.indexOf(id)>=0;});
+      if(!puesta)tray.push(id);
+    });
+    return {fotos:Object.keys(photos).length,faltan:faltan};
+  }
+
+  function restaurarPropuesta(d){
+    var pr=d.prop; if(!pr)return 0;
+    prest=(pr.prest||[]).map(function(r){return r.slice();});
+    grupos=(pr.grupos||[]).slice();
+    fasesExtra=(pr.fasesExtra||[]).slice();
+    faseOff=Object.assign({},pr.faseOff||{});
+    resumenPDF=pr.resumen||null;
+    fuentePresupuesto=pr.fuente||'PDF';
+    if(pr.dl&&pr.dl.paciente){DL.paciente=pr.dl.paciente;DL.tratamiento=pr.dl.tratamiento;DL.hecho=true;}
+    if(prest.length){
+      var out=document.getElementById('pdf-out'); if(out)out.hidden=false;
+      renderTable(); renderTotals(); pintaResumenPDF();
+    }
+    return prest.length;
+  }
+
+  /* Abrir un caso lo deja montado entero —textos, fotos, láminas y
+     propuesta— y muestra primero lo que se hizo, no el primer paso. */
+  async function abrirCaso(c){
+    casoActual={id:c.id,nombre:c.nombre,estado:c.estado};
+    docsGenerados={};
     document.getElementById('f-nombre').value=c.nombre||'';
     document.getElementById('f-edad').value=c.edad||'';
-    var elRut=document.getElementById('f-rut'); if(elRut)elRut.value=c.rut||'';
+    var elRut=document.getElementById('f-rut'); if(elRut)elRut.value=c.rut||(c.datos||{}).rut||'';
     document.getElementById('f-fecha').value=c.fecha||'';
     var d=c.datos||{};
     IDS_TXT.forEach(function(id){var el=document.getElementById(id);if(el&&d[id]!=null)el.value=d[id];});
@@ -1127,12 +1295,85 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     (d.citas||[]).forEach(function(q){var el=document.getElementById(q.id);if(el){el.hidden=false;el.innerHTML=q.html;}});
     if(d.transcripcion)document.getElementById('trans-body').innerHTML=d.transcripcion;
     if(d.menciones)document.getElementById('clin-list').innerHTML=d.menciones;
-    (d.laminas||[]).forEach(function(l,i){if(slides[i])slides[i].hidden=l.oculta;});
+
+    var arch={fotos:0,faltan:0};
+    try{ arch=await restaurarArchivo(c); }
+    catch(e){ console.warn('[archivo]',e); }
+    /* casos viejos: solo se guardaba si la lámina iba oculta */
+    if(!arch.fotos)(d.laminas||[]).forEach(function(l,i){if(slides[i])slides[i].hidden=l.oculta;});
+    limpiarEjemplo();
+    try{ restaurarPropuesta(d); }catch(e){ console.warn('[propuesta]',e); }
+
     render(); if(window.growAll2)growAll2(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles();
     var av=document.getElementById('caso-estado');
-    if(av){av.className='pill';av.textContent='Caso reabierto · las fotos hay que volver a cargarlas';}
-    go(2);
+    if(av){av.className='pill '+(arch.faltan?'warn':'ok');
+      av.textContent=arch.fotos?('Caso reabierto · '+arch.fotos+' foto'+(arch.fotos===1?'':'s')+(arch.faltan?' · faltan '+arch.faltan:'')):
+                                 'Caso reabierto · sin fotos guardadas';}
+    await mostrarFicha(c,arch);
   }
+
+  /* ── La ficha del caso: lo que quedó hecho ──────────────────────────── */
+  var fichaCaso=null;
+  function verHistorial(){
+    fichaCaso=null;
+    document.getElementById('hist-lista').hidden=false;
+    document.getElementById('hist-caso').hidden=true;
+  }
+  function pesoCorto(b){
+    if(!b)return '';
+    return b<1024*1024?Math.max(1,Math.round(b/1024))+' KB':(b/1048576).toFixed(1).replace('.',',')+' MB';
+  }
+  async function mostrarFicha(c,arch){
+    fichaCaso=c;
+    document.getElementById('hist-lista').hidden=true;
+    var ficha=document.getElementById('hist-caso'); ficha.hidden=false;
+
+    document.getElementById('hc-nombre').textContent=c.nombre||'Sin nombre';
+    var est=c.estado==='entregado'?['ok','Entregado']:c.estado==='revisado'?['','Revisado']:['warn','Borrador'];
+    var pe=document.getElementById('hc-estado');
+    pe.className='pill '+est[0]; pe.innerHTML=(est[0]?'<span class="d"></span>':'')+est[1];
+    document.getElementById('hc-sub').textContent=
+      [fechaCorta(c.fecha||c.creado), c.edad?c.edad+' años':'', (c.rut||(c.datos||{}).rut||'')]
+        .filter(Boolean).join('  ·  ');
+
+    /* las láminas se dibujan con el mismo motor de siempre */
+    var vis=slides.map(function(x,i){return [x,i];})
+                  .filter(function(a){return !a[0].hidden&&(a[0].fixed||(a[0].p&&a[0].p.length));});
+    var caja=document.getElementById('hc-laminas');
+    caja.innerHTML=vis.map(function(a,k){
+      return '<div class="it"><div class="sv" data-kind="dsd" data-si="'+a[1]+'"></div>'+
+             '<small>'+(k+1<10?'0'+(k+1):k+1)+'  '+esc(a[0].t)+'</small></div>';
+    }).join('')||'<div style="color:var(--muted);font-size:13px">Este caso no alcanzó a tener láminas con fotos.</div>';
+    caja.querySelectorAll('.sv').forEach(drawSv);
+    document.getElementById('hc-nlam').textContent=vis.length||'—';
+    document.getElementById('hc-lam-nota').textContent=
+      arch&&arch.faltan ? 'Faltan '+arch.faltan+' foto'+(arch.faltan===1?'':'s')+': este caso se guardó en otro equipo o se limpió el archivo del navegador.'
+      : arch&&arch.fotos ? 'Las láminas tal como quedaron, con las fotos en su sitio.'
+      : 'Este caso se guardó antes de que la página archivara las fotos.';
+
+    /* los documentos salen del archivo local, no se vuelven a generar */
+    var docs=(c.datos||{}).archivos||[];
+    var zona=document.getElementById('hc-docs');
+    document.getElementById('hc-ndoc').textContent=docs.length||'—';
+    zona.innerHTML=docs.length?docs.map(function(a){
+      return '<div class="file" style="cursor:default"><span class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>'+
+        '<div class="finfo"><b>'+esc(a.nombre)+'</b><small>'+esc(pesoCorto(a.tam))+'</small></div>'+
+        '<button class="btn ghost" type="button" data-doc="'+esc(a.nombre)+'" style="padding:9px 14px">Descargar</button></div>';
+    }).join(''):'<div style="color:var(--muted);font-size:13px">Este caso no tiene documentos guardados. Ábrelo y genéralos en la entrega.</div>';
+  }
+  document.getElementById('hc-volver').addEventListener('click',verHistorial);
+  document.getElementById('hc-editar').addEventListener('click',function(){ verHistorial(); go(2); });
+  document.getElementById('hc-docs').addEventListener('click',async function(e){
+    var b=e.target.closest('[data-doc]'); if(!b||!fichaCaso)return;
+    var nom=b.dataset.doc, txt=b.textContent;
+    b.disabled=true; b.textContent='Buscando…';
+    try{
+      var blob=await Archivo.leer(fichaCaso.id+'/doc/'+nom);
+      if(!blob)throw new Error('El archivo no está en este equipo. Se guardó donde se generó.');
+      bajar(blob,nom);
+    }catch(err){ aviso('No se pudo abrir el archivo',err.message,true); }
+    b.disabled=false; b.textContent=txt;
+  });
 
   /* photos */
   var ICON={
@@ -1685,6 +1926,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       paso(95,'Escribiendo los documentos…','');
       aplicarCaso(data.caso||{});
       if(window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();
+      /* hay trabajo de verdad: el caso entra al historial como borrador */
+      guardarBorrador(true).catch(function(e){console.warn('[borrador]',e);});
       paso(100,'Listo','Analizado con '+esc(data.modelo||'Gemini')+(data.segundos?' en '+data.segundos+' s':'')+'. Revisa los textos antes de generar nada.');
       setTimeout(function(){prog.hidden=true;},2500);
       go(2);
@@ -2419,7 +2662,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     } finally { m.cont.remove(); }
   }
 
+  var docsGenerados={};   /* {nombre: blob} de esta sesión de trabajo */
   function bajar(blob,nombre){
+    try{ docsGenerados[nombre]=blob; }catch(e){}
     var u=URL.createObjectURL(blob), a=document.createElement('a');
     a.href=u; a.download=nombre; document.body.appendChild(a); a.click();
     setTimeout(function(){a.remove();URL.revokeObjectURL(u);},1500);
@@ -2676,6 +2921,38 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   /* ── empezar otro caso: la página queda como recién abierta ────────── */
+  /* Mientras trabajas, el caso se va guardando solo: lo que ya existe en
+     el historial no se queda atrás. El primer guardado sí es deliberado
+     —el botón, o el final del análisis— para no llenar el historial de
+     casos vacíos. */
+  var guardadoPendiente=null, guardando=false;
+  async function guardarBorrador(forzar){
+    if(guardando)return;
+    if(!forzar&&!casoActual)return;
+    if(!hayTrabajo())return;
+    guardando=true;
+    try{ await guardarCaso((casoActual&&casoActual.estado)||'borrador'); }
+    catch(e){ console.warn('[borrador]',e); if(forzar)throw e; }
+    finally{ guardando=false; }
+  }
+  function guardarLuego(){
+    if(!casoActual)return;
+    clearTimeout(guardadoPendiente);
+    guardadoPendiente=setTimeout(function(){guardarBorrador(false);},1200);
+  }
+  document.getElementById('btn-borrador').addEventListener('click',async function(){
+    var b=this;
+    if(!hayTrabajo()){ aviso('No hay nada que guardar','Carga la consulta o escribe el nombre del paciente.'); return; }
+    b.disabled=true;
+    try{
+      await guardarBorrador(true);
+      aviso('Borrador guardado','Queda en el historial con las fotos y las láminas como están ahora.');
+    }catch(e){ aviso('No se pudo guardar',e.message,true); }
+    b.disabled=false;
+  });
+
+  window.guardarLuego=guardarLuego;
+
   function hayTrabajo(){
     if(audios.length||Object.keys(photos).length||prest.length)return true;
     if((val('f-nombre')||'').trim())return true;
@@ -2688,6 +2965,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         'Vaciar y empezar');
       if(!ok)return false;
     }
+    docsGenerados={};
+    verHistorial();
     estadoInicial(true);
     go(1);
     aviso('Listo para el siguiente paciente','La página quedó en blanco.');
@@ -2768,7 +3047,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(n>0){lastStep=n;tabs.forEach(function(t,i){t.setAttribute('aria-selected',i+1===n);t.classList.toggle('done',i+1<n);});moveInd(n);}
     else tabs.forEach(function(t){t.setAttribute('aria-selected',false);});
     [0,1,2,3,4,5].forEach(function(i){document.getElementById('s'+i).hidden=(i!==n);});
-    var sc=document.getElementById('s'+n);window.scrollTo({top:0});if(scrAnim)scrAnim.stop();if(window.refreshPreviews)refreshPreviews();if(n===2&&window.growAll2)growAll2();if(n===4&&window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();if(n===5&&window.refreshFiles)refreshFiles();
+    var sc=document.getElementById('s'+n);window.scrollTo({top:0});if(scrAnim)scrAnim.stop();if(window.refreshPreviews)refreshPreviews();if(n===2&&window.growAll2)growAll2();if(n===4&&window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();if(window.guardarLuego)guardarLuego();if(n===5&&window.refreshFiles)refreshFiles();
     scrAnim=spring({from:0,to:1,response:.4,onUpdate:function(p){sc.style.opacity=p;sc.style.transform='translateY('+((1-p)*14*dir)+'px)';},onDone:function(){sc.style.transform='';}});
   }
   document.querySelectorAll('[data-go]').forEach(function(b){b.addEventListener('click',function(){if(!b.disabled)go(+b.dataset.go);});});
