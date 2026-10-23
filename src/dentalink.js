@@ -79,16 +79,35 @@ async function buscarPaciente(env, { rut, nombre }) {
   const limpio = rutLimpio(rut);
 
   if (limpio) {
-    const r = await pedir(env, '/pacientes', { rut: { eq: limpio } });
-    if (!r.ok) return r;
-    const lista = Array.isArray(r.data) ? r.data : [];
-    if (lista.length) return { ok: true, data: lista, por: 'rut' };
-    // el RUT es válido pero no está en Dentalink: seguimos por nombre
+    // El RUT identifica sin ambigüedad, así que se agota por ahí antes de
+    // mirar el nombre. Cada ficha puede tenerlo escrito distinto —con
+    // puntos, sin guion—, así que se prueban las formas habituales y, de
+    // última, un «empieza por» sobre el cuerpo sin dígito verificador.
+    const cuerpo = limpio.split('-')[0];
+    const conPuntos = Number(cuerpo).toLocaleString('es-CL') + '-' + limpio.split('-')[1];
+    const intentos = [
+      { rut: { eq: limpio } },
+      { rut: { eq: conPuntos } },
+      { rut: { eq: cuerpo + limpio.split('-')[1] } },
+      { rut: { lk: cuerpo } },
+    ];
+    for (const q of intentos) {
+      const r = await pedir(env, '/pacientes', q);
+      if (!r.ok) return r;
+      const lista = (Array.isArray(r.data) ? r.data : [])
+        .filter((p) => rutLimpio(p.rut) === limpio);
+      if (lista.length) return { ok: true, data: lista, por: 'rut' };
+    }
+    return {
+      ok: false,
+      estado: 404,
+      error: `El RUT ${limpio} no está en Dentalink. Revísalo en el paso 1, o busca sin RUT para ir por nombre.`,
+    };
   }
 
   const texto = String(nombre || '').trim();
   if (!texto) {
-    return { ok: false, estado: 404, error: 'No encontré ese RUT y no hay nombre para buscar' };
+    return { ok: false, estado: 400, error: 'Escribe el RUT del paciente en el paso 1' };
   }
   // el nombre de pila basta: los apellidos suelen venir en otra columna
   const primera = texto.split(/\s+/)[0];

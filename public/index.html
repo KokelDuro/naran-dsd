@@ -598,10 +598,10 @@ button.usuario:hover{color:var(--ink)}
     </div>
     <div class="stack">
       <section class="card">
-        <div class="card-h"><h2>Paciente</h2><span class="pill">Solo el nombre de pila sale del equipo</span></div>
-        <p class="hint">Los demás datos quedan en el historial local.</p>
+        <div class="card-h"><h2>Paciente</h2><span class="pill">Escribe el nombre completo: solo el de pila sale del equipo</span></div>
+        <p class="hint">El nombre completo se usa para titular los archivos; al análisis solo viaja el nombre de pila.</p>
         <div class="fields">
-          <div class="field"><label for="f-nombre">Nombre</label><input class="in" id="f-nombre" placeholder="Nombre del paciente" autocomplete="off"></div>
+          <div class="field"><label for="f-nombre">Nombre</label><input class="in" id="f-nombre" placeholder="Nombre y apellidos" autocomplete="off"></div>
           <div class="field"><label for="f-edad">Edad</label><input class="in" id="f-edad" type="number" placeholder="—" min="0" max="120"></div>
           <div class="field"><label for="f-rut">RUT</label><input class="in" id="f-rut" placeholder="12.345.678-9" autocomplete="off" inputmode="text"></div>
           <div class="field"><label for="f-fecha">Consulta</label><input class="in" id="f-fecha" type="date"></div>
@@ -1574,15 +1574,79 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var pie=ya?pesoCorto(ya.tam)+' · guardado'
              :soso?'Sin presupuesto cargado: saldrá en blanco'
              :'Se arma al descargarlo';
-      return '<div class="file" style="cursor:default">'+
-        '<span class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>'+
+      return '<label class="file" style="cursor:pointer">'+
+        '<input type="checkbox" data-elegir="'+d.clave+'"><span class="chk"></span>'+
         '<div class="finfo"><b>'+esc(nombre)+'</b><small>'+esc(d.titulo+' · '+d.para+' · '+pie)+'</small></div>'+
         (d.vista?'<button class="icn" type="button" data-ver="'+d.vista+'" title="Ver cómo quedó" aria-label="Vista previa de '+esc(nombre)+'"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg></button>':'')+
         '<button class="btn ghost" type="button" data-doc="'+esc(nombre)+'" data-clave="'+d.clave+'" style="padding:9px 14px">'+(ya?'Descargar':'Generar')+'</button>'+
-        '</div>';
-    }).join('');
+        '</label>';
+    }).join('')+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px">'+
+        '<button class="btn" type="button" id="hc-bajar-varios">Descargar los elegidos</button>'+
+        '<button class="btn ghost" type="button" id="hc-todos">Marcar todos</button>'+
+        '<small style="font-size:12px;color:var(--muted)" id="hc-elegidos">Ninguno elegido</small>'+
+      '</div>';
     document.getElementById('hc-ndoc').textContent=listos+' de '+DOCUMENTOS.length;
+    contarElegidos();
   }
+  function contarElegidos(){
+    var cs=[].slice.call(document.querySelectorAll('#hc-docs [data-elegir]:checked'));
+    var e=document.getElementById('hc-elegidos');
+    if(e)e.textContent=cs.length?(cs.length===1?'1 archivo elegido':cs.length+' archivos elegidos'):'Ninguno elegido';
+    var b=document.getElementById('hc-bajar-varios');
+    if(b)b.disabled=!cs.length;
+    return cs;
+  }
+  document.getElementById('hc-docs').addEventListener('change',function(e){
+    if(e.target.matches('[data-elegir]'))contarElegidos();
+  });
+  document.getElementById('hc-docs').addEventListener('click',function(e){
+    var t=e.target.closest('#hc-todos'); if(!t)return;
+    var cs=[].slice.call(document.querySelectorAll('#hc-docs [data-elegir]'));
+    var faltan=cs.some(function(c){return !c.checked;});
+    cs.forEach(function(c){c.checked=faltan;});
+    t.textContent=faltan?'Desmarcar todos':'Marcar todos';
+    contarElegidos();
+  });
+
+  /* Bajar varios de una: el que ya existe sale del archivo, el que no se
+     arma en el momento. Entre uno y otro va una pausa, porque el
+     navegador corta las descargas seguidas. */
+  document.getElementById('hc-docs').addEventListener('click',async function(e){
+    var b=e.target.closest('#hc-bajar-varios'); if(!b||!fichaCaso)return;
+    var elegidos=contarElegidos().map(function(c){
+      var d=DOCUMENTOS.filter(function(x){return x.clave===c.dataset.elegir;})[0];
+      return {clave:d.clave,nombre:d.nombre()};
+    });
+    if(!elegidos.length)return;
+    b.disabled=true;
+    var fallos=[], hechos=0;
+    for(var i=0;i<elegidos.length;i++){
+      var e2=elegidos[i];
+      b.textContent='Preparando '+(i+1)+' de '+elegidos.length+'…';
+      try{
+        var blob=await Archivo.obtener(fichaCaso.id+'/doc/'+e2.nombre);
+        if(blob){ bajar(blob,e2.nombre); }
+        else{
+          var faltan=faltanLibrerias([e2.clave]);
+          if(faltan.length)throw new Error('No cargaron las librerías '+faltan.join(' y '));
+          await generarArchivo(e2.clave,e2.nombre);
+        }
+        hechos++;
+      }catch(err){ console.error('[varios]',e2.clave,err); fallos.push(e2.nombre); }
+      if(i<elegidos.length-1)await new Promise(function(r){setTimeout(r,700);});
+    }
+    if(!soloLectura){
+      try{ await guardarCaso((casoActual&&casoActual.estado)||'revisado');
+           fichaCaso=cases.filter(function(x){return String(x.id)===String(fichaCaso.id);})[0]||fichaCaso; }
+      catch(err2){ console.warn('[archivar]',err2); }
+    }
+    pintarDocsFicha(fichaCaso);
+    b.disabled=false; b.textContent='Descargar los elegidos';
+    if(fallos.length)aviso('Faltaron '+fallos.length,'No se pudieron preparar: '+fallos.join(', '),true);
+    else aviso(hechos+(hechos===1?' archivo descargado':' archivos descargados'),'Quedaron guardados en el caso.');
+  });
+
   document.getElementById('hc-volver').addEventListener('click',verHistorial);
   document.getElementById('hc-subir').addEventListener('click',async function(){
     var b=this, txt=b.textContent;
@@ -1600,6 +1664,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   /* Mirar no necesita generar nada: se dibujan las mismas láminas y
      documentos que ya sabe armar la página, y se abren en el carrusel. */
   document.getElementById('hc-docs').addEventListener('click',function(e){
+    if(e.target.closest('[data-ver],[data-doc],#hc-todos,#hc-bajar-varios'))e.preventDefault();
     var v=e.target.closest('[data-ver]'); if(!v)return;
     var tipo=v.dataset.ver;
     var host=document.getElementById('hc-lb-host')||(function(){
@@ -3503,14 +3568,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
      misma lista del paso de entrega, para que el historial no quede
      mostrando otra cosa. */
   var DOCUMENTOS=[
-    {clave:'dsd-pptx', ext:'pptx', nombre:function(){return 'DSD_'+slug()+'.pptx';},                  titulo:'Presentación DSD',        para:'paciente', vista:'dsd'},
-    {clave:'dsd-pdf',  ext:'pdf',  nombre:function(){return 'DSD_'+slug()+'.pdf';},                   titulo:'Presentación DSD',        para:'paciente', vista:'dsd'},
-    {clave:'prop-pptx',ext:'pptx', nombre:function(){return 'Propuesta_'+slug()+'.pptx';},            titulo:'Propuesta',               para:'paciente', vista:'prop'},
-    {clave:'prop-pdf', ext:'pdf',  nombre:function(){return 'Propuesta_'+slug()+'.pdf';},             titulo:'Propuesta',               para:'paciente', vista:'prop'},
-    {clave:'tips-pdf', ext:'pdf',  nombre:function(){return 'EC-01_Tips_'+slug()+'.pdf';},            titulo:'Tips de venta',           para:'ejecutivo', vista:'tips'},
-    {clave:'plan-pdf', ext:'pdf',  nombre:function(){return 'Plan_clinico_'+slug()+'.pdf';},          titulo:'Plan clínico',            para:'interno', vista:'plan'},
-    {clave:'fases-pdf',ext:'pdf',  nombre:function(){return 'Propuesta_por_fases_'+slug()+'.pdf';},   titulo:'Propuesta por fases',     para:'interno', vista:'fases'},
-    {clave:'caso-json',ext:'json', nombre:function(){return 'caso_'+slug()+'.json';},                 titulo:'Datos del caso',          para:'respaldo'}
+    {clave:'dsd-pptx', ext:'pptx', nombre:function(){return slug()+'_-_1_Presentacion_DSD_para_el_paciente.pptx';},     titulo:'Presentación DSD',    para:'se le muestra al paciente', vista:'dsd'},
+    {clave:'dsd-pdf',  ext:'pdf',  nombre:function(){return slug()+'_-_1_Presentacion_DSD_para_el_paciente.pdf';},      titulo:'Presentación DSD',    para:'se le muestra al paciente', vista:'dsd'},
+    {clave:'prop-pptx',ext:'pptx', nombre:function(){return slug()+'_-_2_Propuesta_y_formas_de_pago.pptx';},            titulo:'Propuesta',           para:'se le muestra al paciente', vista:'prop'},
+    {clave:'prop-pdf', ext:'pdf',  nombre:function(){return slug()+'_-_2_Propuesta_y_formas_de_pago.pdf';},             titulo:'Propuesta',           para:'se le muestra al paciente', vista:'prop'},
+    {clave:'tips-pdf', ext:'pdf',  nombre:function(){return slug()+'_-_3_Tips_de_venta_para_el_ejecutivo.pdf';},        titulo:'Tips de venta',       para:'para el ejecutivo', vista:'tips'},
+    {clave:'plan-pdf', ext:'pdf',  nombre:function(){return slug()+'_-_4_Plan_clinico_uso_interno.pdf';},               titulo:'Plan clínico',        para:'uso interno', vista:'plan'},
+    {clave:'fases-pdf',ext:'pdf',  nombre:function(){return slug()+'_-_5_Propuesta_por_fases_uso_interno.pdf';},        titulo:'Propuesta por fases', para:'uso interno', vista:'fases'},
+    {clave:'caso-json',ext:'json', nombre:function(){return slug()+'_-_6_Datos_del_caso_respaldo.json';},               titulo:'Datos del caso',      para:'respaldo'}
   ];
 
   async function generarArchivo(clave,nombre,paso){
@@ -3640,11 +3705,18 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   /* ── entrega: names, availability, checklist ── */
-  function slug(){return ((val('f-nombre')||'').trim()||'Paciente').replace(/\s+/g,'_');}
+  /* El nombre del archivo tiene que decir qué es, para quién y de quién,
+     porque termina suelto en una carpeta de Descargas o en un correo. */
+  function slug(){
+    return ((val('f-nombre')||'').trim()||'Paciente')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^A-Za-z0-9 ]/g,'').trim().replace(/\s+/g,'_');
+  }
   window.refreshFiles=function(){
-    var sl=slug();document.getElementById('fn-dsd-pptx').textContent='DSD_'+sl+'.pptx';document.getElementById('fn-dsd-pdf').textContent='DSD_'+sl+'.pdf';
-    document.getElementById('fn-prop-pptx').textContent='Propuesta_'+sl+'.pptx';document.getElementById('fn-prop-pdf').textContent='Propuesta_'+sl+'.pdf';
-    document.getElementById('fn-tips').textContent='EC-01_Tips_'+sl+'.pdf';document.getElementById('fn-plan').textContent='Plan_clinico_'+sl+'.pdf';document.getElementById('fn-fases').textContent='Propuesta_por_fases_'+sl+'.pdf';document.getElementById('fn-json').textContent='caso_'+sl+'.json';
+    var porClave={}; DOCUMENTOS.forEach(function(d){porClave[d.clave]=d.nombre();});
+    var casillas={'fn-dsd-pptx':'dsd-pptx','fn-dsd-pdf':'dsd-pdf','fn-prop-pptx':'prop-pptx','fn-prop-pdf':'prop-pdf',
+                  'fn-tips':'tips-pdf','fn-plan':'plan-pdf','fn-fases':'fases-pdf','fn-json':'caso-json'};
+    Object.keys(casillas).forEach(function(id){var el=document.getElementById(id); if(el)el.textContent=porClave[casillas[id]];});
     var vis=slides.filter(function(x){return !x.hidden&&(x.fixed||x.p.length);}).length;document.getElementById('fm-dsd').textContent=vis+' láminas · editable en PowerPoint';
     var ok=!!window.propReady;['prop-pptx','prop-pdf'].forEach(function(k){var f=document.querySelector('.file[data-file="'+k+'"]'),c=f.querySelector('input');c.disabled=!ok;if(!ok)c.checked=false;else if(!f.dataset.touched)c.checked=true;f.classList.toggle('off',!ok);});
     document.getElementById('fm-prop').textContent=ok?'Plan por fases + formas de pago · editable':'Sin PDF de Dentalink · vuelve al paso 4 para armarla';
