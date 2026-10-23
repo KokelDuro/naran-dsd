@@ -601,7 +601,7 @@ button.usuario:hover{color:var(--ink)}
           <input type="file" id="f-dir" webkitdirectory directory multiple hidden>
           <input type="file" id="f-files" multiple accept="audio/*,image/*,.m4a,.heic" hidden>
           <span class="fi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
-          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">O elígela con los botones. Puedes soltar los archivos en varias tandas: se van sumando.</small></div>
+          <div><b id="drop-t">Arrastra aquí la carpeta del paciente</b><small id="drop-s">O elígela con los botones. Si en vez de audio tienes la transcripción en PDF o texto, sirve igual: se van sumando.</small></div>
           <div class="drop-btns"><button class="btn ghost" type="button" id="btn-dir">Elegir carpeta</button><button class="btn ghost" type="button" id="btn-files">Elegir archivos</button></div>
         </div>
         <div class="inv">
@@ -1733,14 +1733,50 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   var IMG_RE=/\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?|avif)$/i;
   var esAudio=function(f){var t=(f.type||'');return t.startsWith('audio/')||t.startsWith('video/')||AUDIO_RE.test(f.name);};
   var esFoto =function(f){return (f.type||'').startsWith('image/')||IMG_RE.test(f.name);};
-  var TXT_RE=/\.(txt|md|markdown|srt|vtt|text|log)$/i;
-  var esTexto=function(f){return TXT_RE.test(f.name)||(f.type||'')==='text/plain';};
+  var TXT_RE=/\.(txt|md|markdown|srt|vtt|text|log|pdf)$/i;
+  var esTexto=function(f){return TXT_RE.test(f.name)||(f.type||'')==='text/plain'||(f.type||'')==='application/pdf';};
   var transcripcion=null;      /* {nombre, texto, lineas} si se cargó una */
 
   /* Acepta lo que exporta TurboScribe: texto plano, SRT o VTT. De los
      subtítulos nos quedamos con el minuto y la frase. */
+  /* Saca las líneas de un PDF respetando los renglones: se agrupan los
+     fragmentos por su altura y se ordenan de izquierda a derecha. Lo usan
+     tanto el presupuesto de Dentalink como la transcripción. */
+  function lineasDePdf(file){
+    if(!window.pdfjsLib)return Promise.reject(new Error('El lector de PDF no cargó. Recarga la página.'));
+    return file.arrayBuffer()
+      .then(function(buf){return window.pdfjsLib.getDocument({data:buf}).promise;})
+      .then(function(pdf){
+        var pages=[];
+        for(var i=1;i<=pdf.numPages;i++)pages.push(pdf.getPage(i).then(function(pg){return pg.getTextContent();}));
+        return Promise.all(pages);
+      })
+      .then(function(contents){
+        var lines=[];
+        contents.forEach(function(tc){
+          var by={};
+          tc.items.forEach(function(it){ if(!it.str.trim())return; var y=Math.round(it.transform[5]/3)*3; (by[y]=by[y]||[]).push(it); });
+          Object.keys(by).map(Number).sort(function(a,b){return b-a;}).forEach(function(y){
+            lines.push(by[y].sort(function(a,b){return a.transform[4]-b.transform[4];}).map(function(i){return i.str;}).join(' ').replace(/\s+/g,' ').trim());
+          });
+        });
+        return lines;
+      });
+  }
+
+  var esPdf=function(f){return (f.type||'')==='application/pdf'||/\.pdf$/i.test(f.name);};
+  /* Un presupuesto de Dentalink se reconoce por sus encabezados: si cae
+     uno en la carpeta del paciente, no es la transcripción. */
+  function pareceDentalink(lineas){
+    var t=lineas.slice(0,60).join(' ');
+    return /detalle del presupuesto|presupuesto\s+n|estado\s+\S+\s+pieza\(s\)/i.test(t);
+  }
+
   function leerTranscripcion(file){
-    return file.text().then(function(bruto){
+    var crudo=esPdf(file)
+      ? lineasDePdf(file).then(function(ls){return ls.join('\n');})
+      : file.text();
+    return crudo.then(function(bruto){
       var t=bruto.replace(/\r/g,'').trim();
       if(/^WEBVTT/i.test(t)||/-->/.test(t)){
         var out=[], bloques=t.split(/\n\s*\n/);
@@ -1897,10 +1933,21 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var destino=destinoFoto(CAT_TIPO[cl.cat]);
       if(destino!=null)slides[destino].p.push(id); else tray.push(id);
     }
-    /* transcripción ya hecha: reemplaza la anterior si se suelta otra */
+    /* Transcripción ya hecha: reemplaza la anterior si se suelta otra.
+       Si el PDF resulta ser el presupuesto de Dentalink, se carga como
+       presupuesto en vez de tomarlo por la consulta. */
+    var presupuestoEnCarpeta=0;
     for(var q=0;q<txts.length;q++){
-      try{ transcripcion=await leerTranscripcion(txts[q]); }
-      catch(e){ ign.push(txts[q].name); }
+      try{
+        if(esPdf(txts[q])){
+          var ls=await lineasDePdf(txts[q]);
+          if(pareceDentalink(ls)){ cargarPresupuestoDeLineas(ls,txts[q].name); presupuestoEnCarpeta++; continue; }
+          transcripcion=await leerTranscripcion(txts[q]);
+        } else {
+          transcripcion=await leerTranscripcion(txts[q]);
+        }
+      }
+      catch(e){ console.warn('[transcripción]',e); ign.push(txts[q].name); }
     }
 
     /* audios → se suman a los que ya había, en orden de nombre */
@@ -2492,13 +2539,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     document.getElementById('pdf-sub').textContent='Leyendo…';
     setState('Leyendo…');
     if(!PDFJS){setState('pdf.js no disponible','warn');document.getElementById('pdf-sub').textContent='No se pudo cargar el lector. Agrega las prestaciones a mano.';document.getElementById('pdf-out').hidden=false;renderTable();renderTotals();return;}
-    file.arrayBuffer().then(function(buf){return PDFJS.getDocument({data:buf}).promise;}).then(function(pdf){
-      var pages=[];for(var i=1;i<=pdf.numPages;i++)pages.push(pdf.getPage(i).then(function(pg){return pg.getTextContent();}));
-      return Promise.all(pages);
-    }).then(function(contents){
-      var lines=[];
-      contents.forEach(function(tc){var by={};tc.items.forEach(function(it){if(!it.str.trim())return;var y=Math.round(it.transform[5]/3)*3;(by[y]=by[y]||[]).push(it);});
-        Object.keys(by).map(Number).sort(function(a,b){return b-a;}).forEach(function(y){lines.push(by[y].sort(function(a,b){return a.transform[4]-b.transform[4];}).map(function(i){return i.str;}).join(' ').replace(/\s+/g,' ').trim());});});
+    lineasDePdf(file).then(function(lines){
       fuentePresupuesto='PDF';
       prest=parseLines(lines);faseOff={};prest.forEach(function(r){if(/altern|opcional/i.test(r[3]))faseOff[r[3]]=true;});  /* la alternativa se cotiza aparte */
       document.getElementById('pdf-out').hidden=false;renderTable();renderTotals();
@@ -2526,6 +2567,22 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       dato.push('<span style="color:var(--warn)">Lo leído suma '+clp(leido)+': revisa la tabla</span>');
     box.innerHTML='Según '+(fuentePresupuesto==='ficha'?'la ficha de Dentalink':'el PDF')+' · '+dato.join(' · ');
     box.hidden=false;
+  }
+
+  /* Mismo resultado que soltar el PDF en su recuadro, pero partiendo de
+     las líneas ya leídas: sirve cuando el presupuesto venía en la carpeta
+     del paciente. */
+  function cargarPresupuestoDeLineas(lines,nombre){
+    fuentePresupuesto='PDF';
+    prest=parseLines(lines); faseOff={};
+    prest.forEach(function(r){ if(/altern|opcional/i.test(r[3]))faseOff[r[3]]=true; });
+    document.getElementById('pdf-out').hidden=false;
+    renderTable(); renderTotals(); pintaResumenPDF();
+    document.getElementById('pdf-name').textContent=nombre||'Presupuesto';
+    document.getElementById('pdf-sub').textContent=prest.length
+      ? prest.length+' prestaciones leídas del presupuesto que venía en la carpeta.'
+      : 'Ese PDF parecía un presupuesto pero no encontré prestaciones.';
+    setState(prest.length?'Leído · '+prest.length+' prestaciones':'Sin prestaciones',prest.length?'ok':'warn');
   }
 
   var dz=document.getElementById('pdf-drop');
