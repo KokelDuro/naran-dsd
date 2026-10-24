@@ -1346,7 +1346,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     /* de cada foto, lo necesario para volver a montarla: el archivo va aparte */
     d.fotos=Object.keys(photos).filter(function(id){return !!photos[id].u;}).map(function(id){
       var f=photos[id];
-      return {id:id,n:f.n||'',k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,
+      return {id:id,n:f.n||'',k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,orig:f.orig||'',
               z:f.z||1,fx:f.fx==null?0.5:f.fx,fy:f.fy==null?0.5:f.fy};
     });
     /* la propuesta: prestaciones, fases y de dónde salieron los montos */
@@ -1547,7 +1547,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var f=lista[i], blob=null, clave=c.id+'/'+f.id;
       try{ blob=await Archivo.obtener(clave); }catch(e){ console.warn('[archivo]',e); }
       if(!blob){ faltan++; continue; }
-      photos[f.id]={n:f.n,k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,z:f.z||1,fx:f.fx,fy:f.fy,
+      photos[f.id]={n:f.n,k:f.k||'face',ar:f.ar||1.33,rv:!!f.rv,z:f.z||1,fx:f.fx,fy:f.fy,orig:f.orig||'',
                     u:URL.createObjectURL(blob),guardadaEn:clave,subidaEn:null,
                     file:new File([blob],(f.n||'foto')+'.jpg',{type:'image/jpeg'})};
     }
@@ -2386,7 +2386,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       (audios.length?audios.map(function(a){
       return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(nomAud(a))+'">'+esc(nomAud(a))+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(tamAud(a))+(a.f?'':' · guardado, se baja al analizar')+'</small></div>';
     }).join(''):(tr?'<div class="ign" style="margin:0"><span>Con la transcripción cargada, el audio no hace falta.</span></div>'
-                   :'<div class="ign" style="margin:0"><span>Ningún audio todavía.</span></div>')));
+                   :(casoActual
+                     ? '<div class="ign" style="margin:0;color:var(--warn)"><span>Este caso no tiene el audio guardado: se hizo antes de que la página guardara audios. Suelta aquí el audio (o la carpeta completa: las fotos que ya están no se repiten) y queda guardado.</span></div>'
+                     : '<div class="ign" style="margin:0"><span>Ningún audio todavía.</span></div>'))));
     var tot=audios.reduce(function(s,a){return s+(a.dur||0);},0);
     document.getElementById('aud-tot').textContent=audios.length?(tot?mmss(tot)+' en total':audios.length+' archivos'):'—';
     var ids=Object.keys(photos);
@@ -2409,10 +2411,16 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var yaEstan={};
     audios.forEach(function(a){yaEstan[nomAud(a)+'·'+tamAud(a)]=true;});
     Object.keys(photos).forEach(function(id){if(photos[id].orig)yaEstan[photos[id].orig]=true;});
+    /* Las fotos de un caso guardado antes no traen su huella: se
+       reconocen por el nombre, así soltar la carpeta completa de nuevo
+       para sumar el audio no las duplica. */
+    var fotoPorNombre={};
+    Object.keys(photos).forEach(function(id){if(photos[id].n)fotoPorNombre[photos[id].n]=true;});
 
     for(var i=0;i<lista.length;i++){var f=lista[i];
       if(/^\./.test(f.name)) continue;
       if(yaEstan[huella(f)]){repetidos++;continue;}
+      if(esFoto(f)&&fotoPorNombre[f.name.replace(/\.[^.]+$/,'')]){repetidos++;continue;}
       if(esTexto(f))txts.push(f); else if(esAudio(f))aud.push(f); else if(esFoto(f))fot.push(f); else ign.push(f.name);}
 
     if(!aud.length&&!fot.length&&!txts.length){
@@ -2509,6 +2517,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       (repetidos?' · '+repetidos+' repetid'+(repetidos===1?'o omitido':'os omitidos'):'')+
       '. Puedes soltar más archivos para agregarlos; «Nuevo caso» vacía todo.';
     if(primeraCarga)limpiarEjemplo();
+    /* en un caso que ya existe, lo agregado queda guardado sin pedirlo */
+    if(casoActual&&(aud.length||txts.length||fot.length))guardarLuego();
     render(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles();
   }
 
