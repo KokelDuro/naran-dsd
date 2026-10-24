@@ -863,8 +863,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
           <div class="params">
             <div class="field"><label for="p-dscto">Descuento pago contado (%)</label><input class="in" id="p-dscto" type="number" value="10"></div>
             <div class="field"><label for="p-cuotas">Cuotas sin interés (tarjeta)</label><input class="in" id="p-cuotas" type="number" value="12"></div>
-            <div class="field"><label for="p-pie">Pie financiamiento interno (%)</label><input class="in" id="p-pie" type="number" value="30"></div>
-            <div class="field"><label for="p-int">Cuotas financiamiento interno</label><input class="in" id="p-int" type="number" value="6"></div>
+            <div class="field"><label for="p-pie">Abono inicial (%)</label><input class="in" id="p-pie" type="number" value="30"></div>
+            <div class="field"><label for="p-int">Cuotas para el saldo</label><input class="in" id="p-int" type="number" value="6"></div>
           </div>
         </section>
       </div>
@@ -879,11 +879,11 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
           <div class="card-h"><h2>Cómo se le presenta</h2></div>
           <div class="row"><div><b>Pago contado</b><small id="l-dscto">Transferencia o efectivo · 10% dscto.</small></div><span class="v" id="v-dscto">—<small>total</small></span></div>
           <div class="row"><div><b>Tarjeta de crédito</b><small id="l-cuotas">12 cuotas sin interés</small></div><span class="v" id="v-cuotas">—<small>por mes</small></span></div>
-          <div class="row"><div><b>Financiamiento Naran</b><small id="l-int">Pie 30% + 6 cuotas</small></div><span class="v" id="v-int">—<small>por mes</small></span></div>
+          <div class="row"><div><b>Abono inicial + cuotas</b><small id="l-int">Abono 30% y 6 cuotas</small></div><span class="v" id="v-int">—<small>por mes</small></span></div>
         </section>
         <section class="card">
-          <div class="card-h"><h2>Vista previa</h2><span class="pill">2 láminas · aparte del DSD</span></div>
-          <div style="display:grid;gap:12px;margin-top:8px"><div class="sv" data-kind="propA"></div><div class="sv" data-kind="propB"></div></div>
+          <div class="card-h"><h2>Vista previa</h2><span class="pill" id="prop-vista-n">2 láminas · aparte del DSD</span></div>
+          <div id="prop-vista" style="display:grid;gap:12px;margin-top:8px"></div>
         </section>
       </aside>
     </div>
@@ -2608,9 +2608,15 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     document.getElementById('ptot').textContent=has?clp(tot):'—';
     window.propReady=has;if(window.refreshFiles)refreshFiles();
     var d=+document.getElementById('p-dscto').value||0,c=+document.getElementById('p-cuotas').value||1,pie=+document.getElementById('p-pie').value||0,ni=+document.getElementById('p-int').value||1;
-    document.getElementById('v-dscto').innerHTML=(has?clp(tot*(1-d/100)):'—')+'<small>total'+(has&&d?' · ahorras '+clp(tot*d/100):'')+'</small>';document.getElementById('l-dscto').textContent='Transferencia o efectivo · '+d+'% dscto.';
-    document.getElementById('v-cuotas').innerHTML=(has?clp(tot/c):'—')+'<small>por mes</small>';document.getElementById('l-cuotas').textContent=c+' cuotas sin interés';
-    document.getElementById('v-int').innerHTML=(has?clp(tot*(1-pie/100)/ni):'—')+'<small>por mes</small>';document.getElementById('l-int').textContent='Pie '+pie+'%'+(has?' ('+clp(tot*pie/100)+')':'')+' + '+ni+' cuotas';
+    /* con varios planes sumados, las formas de pago se muestran sobre la suma */
+    var totP=tot, sobre='';
+    if(presupuestos.length>1&&sumarTratamientos){
+      totP=totalesSumados(presupuestos.filter(function(x){return (x.prest||[]).length;})).tot; sobre='Total de los planes · ';
+    }
+    var hasP=totP>0;
+    document.getElementById('v-dscto').innerHTML=(hasP?clp(totP*(1-d/100)):'—')+'<small>total'+(hasP&&d?' · ahorras '+clp(totP*d/100):'')+'</small>';document.getElementById('l-dscto').textContent=sobre+'Transferencia o efectivo · '+d+'% dscto.';
+    document.getElementById('v-cuotas').innerHTML=(hasP?clp(totP/c):'—')+'<small>por mes</small>';document.getElementById('l-cuotas').textContent=sobre+c+' cuotas sin interés';
+    document.getElementById('v-int').innerHTML=(hasP?clp(totP*(1-pie/100)/ni):'—')+'<small>por mes</small>';document.getElementById('l-int').textContent=sobre+'Abono '+pie+'%'+(hasP?' ('+clp(totP*pie/100)+')':'')+' y '+ni+' cuotas';
     window.propData={groups:groups,order:order,tot:tot,inc:inc,d:d,c:c,pie:pie,ni:ni,off:faseOff};
     if(presupuestos.length){ guardarActivo(); pintarPresupuestos(); }
     if(window.refreshPreviews)refreshPreviews('prop');
@@ -3079,6 +3085,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     });
     document.getElementById('pres-sumar').addEventListener('change',function(){
       sumarTratamientos=this.checked;
+      renderTotals();
       pintarPresupuestos();
       if(window.refreshPreviews)refreshPreviews('prop');
       if(window.refreshFiles)refreshFiles();
@@ -3289,11 +3296,16 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         var items=(d.prest||prest).filter(function(r){return (r[3]||'').trim()===f;}).slice(0,5),y=251;items.forEach(function(r){h+=tx(x+21,y,cw-42,30,'•  '+r[0],10.5,{color:fg});y+=35;});
         h+=tx(x+21,418,cw-42,24,'Inversión',9,{color:on?'cfe3dd':'5d6f6d'})+tx(x+21,437,cw-42,38,clp(g.t),15,{serif:true,bold:true,color:fg});});
       return {cls:'',h:h+tx(58,494,845,30,'Valores según presupuesto Dentalink · Propuesta válida por 15 días',8.5,{color:'5d6f6d'})};},
-    propB:function(sl){var d=(sl&&sl.datos)||window.propData,h=logo(792,31,120)+tx(58,43,670,48,'Inversión en tu sonrisa',24,{serif:true,color:'306468'});
+    propB:function(sl){var d=(sl&&sl.datos)||window.propData,h=logo(792,31,120)+tx(58,43,670,48,(d&&d.titulo)||'Inversión en tu sonrisa',24,{serif:true,color:'306468'});
       if(!d||!d.tot)return {cls:'',h:h+tx(58,220,845,60,'Se completa con el total del tratamiento',13,{color:'8fa19e',align:'center'})};
-      h+=tx(58,91,710,30,(d.etiqueta||'Tratamiento completo')+' · '+d.inc.join(' + '),11,{color:'5d6f6d'})+tx(58,139,384,28,'Total del tratamiento',10,{color:'5d6f6d'})+tx(58,163,420,58,clp(d.tot),30,{serif:true,bold:true,color:'306468'});
-      var y=155;d.inc.forEach(function(f){h+=tx(422,y,365,28,f,10,{color:'5d6f6d',align:'right'})+tx(797,y,106,28,clp(d.groups[f].t),10,{bold:true,align:'right'});y+=27;});
-      var rows=[['Pago contado','Transferencia o efectivo · '+d.d+'% de descuento'+(d.d?' · ahorras '+clp(d.tot*d.d/100):''),clp(d.tot*(1-d.d/100)),'total',true],['Tarjeta de crédito',d.c+' cuotas sin interés',clp(d.tot/d.c),'por mes',false],['Financiamiento Naran','Pie '+d.pie+'% ('+clp(d.tot*d.pie/100)+') + '+d.ni+' cuotas directas',clp(d.tot*(1-d.pie/100)/d.ni),'por mes',false]];
+      var sub=d.porPlan?d.porPlan.map(function(x){return x.nombre.split(' · ')[0];}).join(' + '):d.inc.join(' + ');
+      h+=tx(58,91,710,30,(d.etiqueta||'Tratamiento completo')+' · '+sub,11,{color:'5d6f6d'})+tx(58,139,384,28,d.porPlan?'Total de los planes':'Total del tratamiento',10,{color:'5d6f6d'})+tx(58,163,420,58,clp(d.tot),30,{serif:true,bold:true,color:'306468'});
+      /* a la derecha, de qué se compone: los planes en la final, las fases en las demás */
+      var partes=d.porPlan?d.porPlan.map(function(x){return [x.nombre.split(' · ')[0],x.tot];})
+                          :d.inc.map(function(f){return [f,d.groups[f].t];});
+      if(partes.length>3){ var resto=partes.slice(2).reduce(function(a,x){return a+x[1];},0); partes=partes.slice(0,2).concat([['Otras '+(partes.length-2),resto]]); }
+      var y=155;partes.forEach(function(x){h+=tx(422,y,365,28,x[0],10,{color:'5d6f6d',align:'right'})+tx(797,y,106,28,clp(x[1]),10,{bold:true,align:'right'});y+=27;});
+      var rows=[['Pago contado','Transferencia o efectivo · '+d.d+'% de descuento'+(d.d?' · ahorras '+clp(d.tot*d.d/100):''),clp(d.tot*(1-d.d/100)),'total',true],['Tarjeta de crédito',d.c+' cuotas sin interés',clp(d.tot/d.c),'por mes',false],['Abono inicial + cuotas','Pagas el '+d.pie+'% hoy ('+clp(d.tot*d.pie/100)+') y el resto en '+d.ni+' cuotas',clp(d.tot*(1-d.pie/100)/d.ni),'por mes',false]];
       y=240;rows.forEach(function(r){var fg=r[4]?'f6f9f8':'16201f',sub=r[4]?'cfe3dd':'5d6f6d';h+='<div class="cd'+(r[4]?' on':'')+'" style="left:58px;top:'+y+'px;width:845px;height:75px;border-radius:12px"></div>'+tx(82,y+13,346,30,r[0],13,{serif:true,bold:true,color:fg})+tx(82,y+42,442,24,r[1],9.5,{color:sub})+tx(595,y+12,283,38,r[2],17,{serif:true,bold:true,color:fg,align:'right'})+tx(595,y+46,283,21,r[3],8.5,{color:sub,align:'right'});y+=86;});
       return {cls:'',h:h+tx(58,499,845,30,'Valores en pesos chilenos · Propuesta válida por 15 días · La alternativa se cotiza aparte si la eliges',8.5,{color:'5d6f6d'})};}
   };
@@ -3309,7 +3321,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function slideFor(el){var k=el.dataset.kind;
     if((k==='propA'||k==='propB')&&el.dataset.pi!=null){
       var lp=vistaProp[+el.dataset.pi];
-      return {kind:k,sl:lp?lp.sl:null,title:k==='propA'?'Tu plan, paso a paso':'Inversión en tu sonrisa'};
+      var dd=lp&&lp.sl&&lp.sl.datos;
+      return {kind:k,sl:lp?lp.sl:null,title:k==='propA'?'Tu plan, paso a paso':((dd&&dd.titulo)||'Inversión en tu sonrisa')};
     }
     if(k==='dsd'){
       /* al abrir otro caso cambian las láminas, y en el DOM pueden quedar
@@ -3328,7 +3341,15 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     if(scope!=='prop'){document.querySelectorAll('.sv[data-kind="dsd"],.sv[data-kind="tucaso"],.sv[data-kind="frase"]').forEach(drawSv);
       var list=document.getElementById('dsd-list');if(list){var vis=slides.map(function(x,i){return [x,i];}).filter(function(a){return !a[0].hidden&&(a[0].fixed||a[0].p.length);});
         list.innerHTML=vis.map(function(a,k){return '<div class="it"><div class="sv" data-kind="dsd" data-si="'+a[1]+'"></div><small>'+(k+1<10?'0'+(k+1):k+1)+'  '+esc(a[0].t)+'</small></div>';}).join('');list.querySelectorAll('.sv').forEach(drawSv);}}
-    document.querySelectorAll('.sv[data-kind="propA"],.sv[data-kind="propB"]').forEach(drawSv);
+    var pv=document.getElementById('prop-vista');
+    if(pv){
+      var lam=hostPropuesta(pv);
+      var pn=document.getElementById('prop-vista-n');
+      if(pn)pn.textContent=lam.length+(lam.length===1?' lámina':' láminas')+' · aparte del DSD';
+    }
+    document.querySelectorAll('.sv[data-kind="propA"],.sv[data-kind="propB"]').forEach(function(el){
+      if(!pv||!pv.contains(el))drawSv(el);
+    });
   };
   ['r-motivo','r-busca','r-importante','r-expect','r-frase','f-nombre','f-edad'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',function(){document.querySelectorAll('.sv[data-kind="tucaso"],.sv[data-kind="frase"]').forEach(drawSv);});});
   /* ── Ajustar una foto dentro de su lámina: acercar, mover, recortar ──
@@ -3782,21 +3803,25 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       .map(function(a){return {kind:tipoDe(a.sl),sl:a.sl};})
       .filter(function(a){return !!SLIDE[a.kind];});
   }
+  /* Con un plan, las dos láminas de siempre. Con varios, las dos de cada
+     uno —su plan por fases y su inversión— y, si se eligió sumarlos, una
+     última con el total de todos y las formas de pago sobre esa suma. */
   function laminasPropuesta(){
     var vivos=presupuestosVivos();
     if(vivos.length<=1)return [{kind:'propA',sl:null},{kind:'propB',sl:null}];
-    if(sumarTratamientos){
-      /* un solo total y una sola forma de pago, sobre la suma */
-      var d=totalesSumados(vivos);
-      return [{kind:'propA',sl:{datos:d}},{kind:'propB',sl:{datos:d}}];
-    }
-    /* cada plan con lo suyo, uno detrás de otro en el mismo archivo */
     var out=[];
     vivos.forEach(function(pr){
       var dd=totalesDe(pr);
       out.push({kind:'propA',sl:{datos:dd}});
       out.push({kind:'propB',sl:{datos:dd}});
     });
+    if(sumarTratamientos){
+      var d=totalesSumados(vivos);
+      d.titulo='Inversión total';
+      d.etiqueta=vivos.length===2?'Los dos planes':'Los '+vivos.length+' planes';
+      d.porPlan=vivos.map(function(pr){return {nombre:pr.nombre||'Plan',tot:totalesDe(pr).tot};});
+      out.push({kind:'propB',sl:{datos:d}});
+    }
     return out;
   }
 
