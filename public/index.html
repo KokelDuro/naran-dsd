@@ -2795,7 +2795,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       }
       await dlConPaciente(gente[0]);
     }catch(e){
-      dlEstado('No se pudo','warn'); dlNota(e.message);
+      dlFallo(e);
     }finally{ DL.buscando=false; }
   }
 
@@ -2818,7 +2818,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       }
       DL.planes=candidatos;
       await dlConPlan(candidatos[0]);
-    }catch(e){ dlEstado('No se pudo','warn'); dlNota(e.message); }
+    }catch(e){ dlFallo(e); }
   }
 
   function nombrePlan(x){ return (x.nombre||'Plan')+(x.fecha?' · '+fechaCorta(x.fecha):''); }
@@ -2852,13 +2852,57 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     };
   }
 
+  /* La categoría de una prestación (Higiene, Corona…) casi nunca cambia,
+     así que se recuerda en este navegador y solo se le pregunta a
+     Dentalink por las que todavía no se conocen. Es lo que evita que
+     cada búsqueda gaste decenas de consultas y Dentalink corte. */
+  var CLAVE_CAT='naran-categorias';
+  function categoriasConocidas(){ try{ return JSON.parse(localStorage.getItem(CLAVE_CAT)||'{}'); }catch(e){ return {}; } }
+  function recordarCategorias(nuevas){
+    try{ var c=categoriasConocidas(); Object.keys(nuevas).forEach(function(k){c[k]=nuevas[k];}); localStorage.setItem(CLAVE_CAT,JSON.stringify(c)); }catch(e){}
+  }
+  async function completarFases(d){
+    var filas=d.prestaciones||[], conocidas=categoriasConocidas();
+    var faltan=[];
+    filas.forEach(function(x){
+      if(x.seccion||x.idPrestacion==null)return;
+      if(!conocidas[x.idPrestacion]&&faltan.indexOf(String(x.idPrestacion))<0)faltan.push(String(x.idPrestacion));
+    });
+    var aviso=null;
+    if(faltan.length){
+      try{
+        var r=await dlPedir('/categorias?ids='+faltan.slice(0,40).join(','));
+        recordarCategorias(r.categorias||{});
+        Object.keys(r.categorias||{}).forEach(function(k){conocidas[k]=r.categorias[k];});
+        aviso=r.aviso||null;
+      }catch(e){ aviso=e.message; }
+    }
+    filas.forEach(function(x){
+      if(!x.seccion)x.seccion=(x.idPrestacion!=null&&conocidas[x.idPrestacion])||'Tratamiento';
+    });
+    return aviso;
+  }
+
   async function dlConPlan(plan){
     DL.tratamiento=plan;
     dlEstado('Trayendo el presupuesto…');
     try{
       var d=await dlPedir('/presupuesto?tratamiento='+encodeURIComponent(plan.id));
+      var aviso=await completarFases(d);
       dlAplicar(d,plan);
-    }catch(e){ dlEstado('No se pudo','warn'); dlNota(e.message); }
+      if(aviso)dlNota(document.getElementById('dl-nota').textContent+' — algunas fases quedaron como «Tratamiento»: '+aviso);
+    }catch(e){ dlFallo(e); }
+  }
+
+  /* Tras un error no se vuelve a buscar sola cada vez que se entra al
+     paso 4: eso multiplicaba las consultas justo cuando Dentalink pedía
+     pausa. El botón sigue disponible. */
+  var dlPausaHasta=0;
+  function dlFallo(e){
+    var msg=(e&&e.message)||String(e);
+    dlEstado(/429|pausa/.test(msg)?'En pausa':'No se pudo','warn');
+    dlNota(msg);
+    dlPausaHasta=Date.now()+60000;
   }
 
   /* Deja los datos en la misma forma que usa la tabla: así todo lo que ya
@@ -2898,7 +2942,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     setState('Desde Dentalink · '+prest.length+' prestaciones','ok');
   }
 
-  window.dlAlTerminarAnalisis=function(){ if(cfgApp.dentalink&&!DL.hecho)dlBuscar(false); };
+  window.dlAlTerminarAnalisis=function(){ if(cfgApp.dentalink&&!DL.hecho&&Date.now()>dlPausaHasta)dlBuscar(false); };
 
   var dlBtn=document.getElementById('dl-buscar');
   if(dlBtn)dlBtn.addEventListener('click',function(){ DL.hecho=false; dlReiniciar(); dlBuscar(true); });

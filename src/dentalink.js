@@ -39,10 +39,25 @@ async function pedir(env, ruta, { q, version = 'v1', sort, urlCompleta } = {}) {
   }
 
   let r;
-  try {
-    r = await fetch(url, { headers: { authorization: `Token ${env.DENTALINK_TOKEN}` } });
-  } catch (e) {
-    return { ok: false, estado: 502, error: `No se pudo llegar a Dentalink: ${e.message}` };
+  /* Dentalink limita cuántas consultas seguidas acepta (429). En vez de
+     fallar, se espera lo que indica —o un rato prudente— y se reintenta. */
+  for (let intento = 0; ; intento++) {
+    try {
+      r = await fetch(url, { headers: { authorization: `Token ${env.DENTALINK_TOKEN}` } });
+    } catch (e) {
+      return { ok: false, estado: 502, error: `No se pudo llegar a Dentalink: ${e.message}` };
+    }
+    if (r.status !== 429 || intento >= 2) break;
+    const pide = Number(r.headers.get('retry-after'));
+    const espera = Math.min(8, isFinite(pide) && pide > 0 ? pide : 2 + intento * 2);
+    await new Promise((res) => setTimeout(res, espera * 1000));
+  }
+  if (r.status === 429) {
+    return {
+      ok: false,
+      estado: 429,
+      error: 'Dentalink pidió una pausa: recibió demasiadas consultas seguidas. Espera un minuto y vuelve a buscar.',
+    };
   }
 
   const texto = await r.text();
@@ -87,6 +102,27 @@ async function enTandas(lista, max, fn) {
   return out;
 }
 
+/* Lo ya consultado queda en memoria mientras este Worker siga caliente;
+   la memoria que dura de verdad es la del navegador. */
+const memoCategoria = new Map();
+
+async function categorias(env, ids) {
+  const out = {};
+  const faltan = [];
+  ids.forEach((id) => (memoCategoria.has(id) ? (out[id] = memoCategoria.get(id)) : faltan.push(id)));
+  let fallo = null;
+  // de a dos: más rápido no vale el riesgo de que Dentalink corte
+  await enTandas(faltan, 2, async (idp) => {
+    if (fallo) return;
+    const r = await pedir(env, `/prestaciones/${encodeURIComponent(idp)}`);
+    if (!r.ok) { if (r.estado === 429) fallo = r; return; }
+    const c = r.data ? (Array.isArray(r.data) ? r.data[0] : r.data) : null;
+    const nombre = c && c.nombre_categoria ? String(c.nombre_categoria).trim() : '';
+    if (nombre) { memoCategoria.set(idp, nombre); out[idp] = nombre; }
+  });
+  return { out, fallo };
+}
+
 const conPuntos = (cuerpo) => String(cuerpo).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 /* ── RUT: normalizar y comprobar el dígito verificador ────────────────
@@ -120,15 +156,13 @@ async function buscarPaciente(env, { rut, nombre }) {
     // mirar el nombre. Cada ficha puede tenerlo escrito distinto —con
     // puntos, sin guion—, así que se prueban las formas habituales y, de
     // última, un «empieza por» sobre el cuerpo sin dígito verificador.
-    const [cuerpo, dv] = limpio.split('-');
-    const intentos = [
-      { rut: { eq: limpio } },
-      { rut: { eq: conPuntos(cuerpo) + '-' + dv } },
-      { rut: { eq: cuerpo + dv } },
-      { rut: { lk: cuerpo } },
-    ];
-    for (const q of intentos) {
-      const r = await pedirTodo(env, '/pacientes', { q }, 5);
+    // «Contiene» sobre el cuerpo calza con 18083282-3, 18.083.282-3 o
+    // 180832823 en una sola consulta; el dígito verificador descarta el
+    // resto. Con puntos el cuerpo se parte, así que si no aparece se
+    // prueba una vez la forma con puntos.
+    const cuerpo = limpio.split('-')[0];
+    for (const q of [{ rut: { lk: cuerpo } }, { rut: { lk: conPuntos(cuerpo) } }]) {
+      const r = await pedirTodo(env, '/pacientes', { q }, 2);
       if (!r.ok) return r;
       const lista = (Array.isArray(r.data) ? r.data : [])
         .filter((p) => rutLimpio(p.rut) === limpio);
@@ -177,18 +211,10 @@ async function presupuesto(env, idTratamiento) {
   ]);
   if (!detalles.ok) return detalles;
 
-  /* El PDF de Dentalink agrupa por la categoría de cada prestación
-     (Higiene, Corona, Carillas…), no por secciones: esas casi siempre
-     vienen sin nombre. Así que la categoría es la fase propuesta, y una
-     sección solo manda si alguien le puso nombre. */
-  const filas = Array.isArray(detalles.data) ? detalles.data : [];
-  const ids = [...new Set(filas.map((d) => d.id_prestacion).filter((x) => x != null))].slice(0, 60);
-  const categoriaDe = {};
-  await enTandas(ids, 6, async (idp) => {
-    const r = await pedir(env, `/prestaciones/${encodeURIComponent(idp)}`);
-    const c = r.ok && r.data ? (Array.isArray(r.data) ? r.data[0] : r.data) : null;
-    if (c && c.nombre_categoria) categoriaDe[idp] = String(c.nombre_categoria).trim();
-  });
+  /* La fase propuesta es la categoría de cada prestación, como en el PDF
+     de Dentalink; una sección solo manda si alguien le puso nombre. La
+     categoría la completa la página con /categorias, que recuerda las
+     que ya conoce: así no se pregunta lo mismo en cada búsqueda. */
 
   const secciones = (desglose.ok && desglose.data && desglose.data.secciones) || [];
   // de qué sección viene cada prestación, para proponerla como fase
@@ -212,7 +238,8 @@ async function presupuesto(env, idTratamiento) {
       pagado: num(d.pagado),
       realizada: !!d.realizado,
       estado: d.realizado ? 'Realizada' : 'Pendiente',
-      seccion: seccionDe[d.id] || categoriaDe[d.id_prestacion] || 'Tratamiento',
+      idPrestacion: d.id_prestacion ?? null,
+      seccion: seccionDe[d.id] || '',
     };
   });
 
@@ -221,10 +248,7 @@ async function presupuesto(env, idTratamiento) {
     ok: true,
     data: {
       prestaciones,
-      secciones: [...new Set(prestaciones.map((x) => x.seccion))].map((nombre) => ({
-        nombre,
-        total: prestaciones.filter((x) => x.seccion === nombre).reduce((a, x) => a + x.total, 0),
-      })),
+      secciones: [],
       resumen: {
         total: num(g.total),
         abonado: num(g.abonado),
@@ -293,6 +317,14 @@ export async function dentalink(request, env, pathname) {
     // el más reciente primero: es casi siempre el que se está cotizando
     lista.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
     return json({ ok: true, tratamientos: lista });
+  }
+
+  if (resto === '/categorias') {
+    const ids = (url.searchParams.get('ids') || '').split(',')
+      .map((x) => x.trim()).filter((x) => /^\d+$/.test(x)).slice(0, 40);
+    if (!ids.length) return json({ ok: true, categorias: {} });
+    const { out, fallo } = await categorias(env, ids);
+    return json({ ok: true, categorias: out, aviso: fallo ? fallo.error : null });
   }
 
   if (resto === '/presupuesto') {
