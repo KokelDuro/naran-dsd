@@ -1315,7 +1315,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     });
     guardarActivo();
     d.presupuestos=presupuestos.map(function(pr){
-      return {nombre:pr.nombre,prest:(pr.prest||[]).map(function(r){return r.slice();}),
+      return {nombre:pr.nombre,idDentalink:pr.idDentalink||null,prest:(pr.prest||[]).map(function(r){return r.slice();}),
               grupos:(pr.grupos||[]).slice(),fasesExtra:(pr.fasesExtra||[]).slice(),
               faseOff:Object.assign({},pr.faseOff||{}),resumen:pr.resumen||null,fuente:pr.fuente||'PDF'};
     });
@@ -2664,7 +2664,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   function nuevoPresupuesto(nombre){
     guardarActivo();
     if(!presupuestos.length&&prest.length){
-      presupuestos.push({nombre:'Presupuesto 1',prest:prest.map(function(r){return r.slice();}),
+      var deFicha=fuentePresupuesto==='ficha'&&DL.tratamiento;
+      presupuestos.push({nombre:deFicha?nombrePlan(DL.tratamiento):'Presupuesto 1',
+        idDentalink:deFicha?DL.tratamiento.id:null,prest:prest.map(function(r){return r.slice();}),
         grupos:grupos.slice(),fasesExtra:fasesExtra.slice(),faseOff:Object.assign({},faseOff),
         resumen:resumenPDF,fuente:fuentePresupuesto});
     }
@@ -2796,22 +2798,52 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     dlEstado('Buscando el plan…'); dlNota(pac.nombre+(pac.rut?' · '+pac.rut:''));
     try{
       var t=await dlPedir('/tratamientos?paciente='+encodeURIComponent(pac.id));
-      var planes=(t.tratamientos||[]).filter(function(x){return !x.finalizado;});
-      if(!planes.length)planes=t.tratamientos||[];
-      if(!planes.length){
+      /* Dentalink crea un «Diagnóstico» vacío con cada cita, así que casi
+         todo paciente tiene varios planes. Se toma solo el más reciente que
+         tenga montos y los demás quedan a mano para cambiar o sumar. */
+      var todos=t.tratamientos||[];
+      var abiertos=todos.filter(function(x){return !x.finalizado;});
+      var conMonto=abiertos.filter(function(x){return x.conMonto||x.total>0;});
+      var candidatos=conMonto.length?conMonto:(abiertos.length?abiertos:todos);
+      if(!candidatos.length){
         dlEstado('Sin presupuesto','warn');
-        dlNota(pac.nombre+' no tiene planes de tratamiento cargados.');
+        dlNota(pac.nombre+' no tiene planes de tratamiento cargados en Dentalink.');
         return;
       }
-      if(planes.length>1){
-        dlEstado('Varios planes');
-        dlOpciones('¿Qué plan quieres cotizar?',planes.map(function(x){
-          return {titulo:x.nombre,detalle:[x.fecha,x.total?clp(x.total):''].filter(Boolean).join(' · '),valor:x};
-        }),dlConPlan);
-        return;
-      }
-      await dlConPlan(planes[0]);
+      DL.planes=candidatos;
+      await dlConPlan(candidatos[0]);
     }catch(e){ dlEstado('No se pudo','warn'); dlNota(e.message); }
+  }
+
+  function nombrePlan(x){ return (x.nombre||'Plan')+(x.fecha?' · '+fechaCorta(x.fecha):''); }
+
+  /* Los otros planes del paciente: se puede cambiar al que se cotiza o
+     sumarlo como un presupuesto más. */
+  function pintarOtrosPlanes(){
+    var caja=document.getElementById('dl-elige'); if(!caja)return;
+    var usados={};
+    presupuestos.forEach(function(pr){ if(pr.idDentalink)usados[pr.idDentalink]=1; });
+    if(DL.tratamiento)usados[DL.tratamiento.id]=1;
+    var otros=(DL.planes||[]).filter(function(x){return !usados[x.id];});
+    if(!otros.length){ caja.hidden=true; caja.innerHTML=''; caja.onclick=null; return; }
+    caja.innerHTML='<small style="font-size:12px;color:var(--muted)">'+
+        (otros.length===1?'Este paciente tiene otro plan:':'Este paciente tiene '+otros.length+' planes más:')+'</small>'+
+      otros.map(function(x){
+        return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+          '<span style="flex:1;min-width:170px;font-size:13px"><b>'+esc(x.nombre||'Plan')+'</b> '+
+          '<small style="color:var(--muted)">'+esc([x.fecha?fechaCorta(x.fecha):'',x.total?clp(x.total):''].filter(Boolean).join(' · '))+'</small></span>'+
+          '<button class="btn ghost" type="button" data-plan-usar="'+x.id+'" style="padding:8px 12px">Cotizar este</button>'+
+          '<button class="btn ghost" type="button" data-plan-sumar="'+x.id+'" style="padding:8px 12px">Agregar como otro presupuesto</button>'+
+        '</div>';
+      }).join('');
+    caja.hidden=false;
+    caja.onclick=async function(e){
+      var u=e.target.closest('[data-plan-usar]'), a=e.target.closest('[data-plan-sumar]');
+      var id=(u||a)&&(u||a).getAttribute(u?'data-plan-usar':'data-plan-sumar'); if(!id)return;
+      var plan=(DL.planes||[]).filter(function(x){return String(x.id)===String(id);})[0]; if(!plan)return;
+      if(a){ nuevoPresupuesto(nombrePlan(plan)); renderTable(); renderTotals(); pintarPresupuestos(); }
+      await dlConPlan(plan);
+    };
   }
 
   async function dlConPlan(plan){
@@ -2846,7 +2878,13 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     fuentePresupuesto='ficha';
     renderTable(); renderTotals(); pintaResumenPDF();
     DL.hecho=true;
-    guardarActivo(); pintarPresupuestos();
+    guardarActivo();
+    if(presupuestos[activoPres]){
+      var prA=presupuestos[activoPres];
+      prA.idDentalink=plan.id;
+      if(!prA.nombre||/^Presupuesto \d+$/.test(prA.nombre))prA.nombre=nombrePlan(plan);
+    }
+    pintarPresupuestos(); pintarOtrosPlanes();
     dlEstado('Listo · '+prest.length+' prestaciones','ok');
     dlNota((DL.paciente?DL.paciente.nombre+' · ':'')+plan.nombre+(plan.fecha?' · '+plan.fecha:'')+
            (d.aviso?' — sin secciones: '+d.aviso:''));
@@ -3243,7 +3281,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     rxperi:function(sl){return {cls:'dark',h:darkHead()+fotos(sl.p,48,58,864,412,['Radiografías periapicales'],sl.orden)+cap('Radiografías periapicales')};},
     cierre:function(){return {cls:'grad',h:logo(230,163,499)+tx(77,437,806,30,'Naran Estudio Dental  ·  Propuesta preparada especialmente para ti',11,{color:'234c50',align:'center'})};},
     propA:function(sl){var d=(sl&&sl.datos)||window.propData||{order:[],groups:{},off:{}},h=logo(792,31,120)+tx(58,43,670,48,'Tu plan, paso a paso',24,{serif:true,color:'306468'})+tx(58,91,710,30,(d.etiqueta?d.etiqueta+' · ':'')+'Empezamos por la salud. La fase estética se decide contigo después del diseño.',11,{color:'5d6f6d'});
-      var fases=d.order.slice(0,3);if(!fases.length)return {cls:'',h:h+tx(58,220,845,60,'Suelta el PDF de Dentalink para ver el plan por fases',13,{color:'8fa19e',align:'center'})};
+      var fases=d.order.slice(0,3);if(!fases.length)return {cls:'',h:h+tx(58,220,845,60,'Trae el presupuesto desde Dentalink en el paso 4 para ver el plan por fases',13,{color:'8fa19e',align:'center'})};
       var cw=fases.length===1?845:fases.length===2?414:274,gap=17;
       var main=fases.filter(function(x){return !d.off[x];}).sort(function(a,b){return d.groups[b].t-d.groups[a].t;})[0];
       fases.forEach(function(f,i){var on=f===main,x=58+i*(cw+gap),g=d.groups[f],fg=on?'f6f9f8':'16201f',sub=on?'a8d0c8':'306468';

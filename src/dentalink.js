@@ -22,12 +22,21 @@ const json = (obj, status = 200) =>
  * Devuelve siempre {ok, data|error} para que arriba no haya que adivinar
  * si lo que llegó fue una respuesta o una excusa.
  */
-async function pedir(env, ruta, { q, version = 'v1' } = {}) {
+async function pedir(env, ruta, { q, version = 'v1', sort, urlCompleta } = {}) {
   if (!env.DENTALINK_TOKEN) {
     return { ok: false, estado: 503, error: 'Falta el token de Dentalink en el Worker' };
   }
-  let url = `${BASE}/${version}${ruta}`;
-  if (q) url += `?q=${encodeURIComponent(JSON.stringify(q))}`;
+  let url = urlCompleta;
+  if (!url) {
+    const params = [];
+    if (q) params.push(`q=${encodeURIComponent(JSON.stringify(q))}`);
+    if (sort) params.push(`sort=${encodeURIComponent(sort)}`);
+    url = `${BASE}/${version}${ruta}` + (params.length ? `?${params.join('&')}` : '');
+  }
+  // solo se siguen enlaces que apunten a la misma API
+  if (!url.startsWith(BASE + '/')) {
+    return { ok: false, estado: 400, error: 'Enlace de página inesperado' };
+  }
 
   let r;
   try {
@@ -51,6 +60,34 @@ async function pedir(env, ruta, { q, version = 'v1' } = {}) {
   if (!cuerpo) return { ok: false, estado: 502, error: 'Dentalink devolvió algo que no es JSON' };
   return { ok: true, data: cuerpo.data, enlaces: cuerpo.links };
 }
+
+/* Dentalink entrega las listas por páginas: cada respuesta trae en
+   links.next la siguiente. Sin seguirlas, todo lo que no cupo en la
+   primera simplemente no existía. */
+async function pedirTodo(env, ruta, opciones = {}, maxPaginas = 25) {
+  let r = await pedir(env, ruta, opciones);
+  if (!r.ok) return r;
+  let todo = Array.isArray(r.data) ? r.data.slice() : [];
+  let siguiente = r.enlaces && r.enlaces.next;
+  for (let i = 1; siguiente && i < maxPaginas; i++) {
+    const p = await pedir(env, null, { urlCompleta: siguiente });
+    if (!p.ok) return p;
+    if (Array.isArray(p.data)) todo = todo.concat(p.data);
+    siguiente = p.enlaces && p.enlaces.next;
+  }
+  return { ok: true, data: todo };
+}
+
+/* Varias consultas a la vez, sin pasarse: Dentalink limita el ritmo. */
+async function enTandas(lista, max, fn) {
+  const out = new Array(lista.length);
+  let i = 0;
+  const obrero = async () => { while (i < lista.length) { const k = i++; out[k] = await fn(lista[k]); } };
+  await Promise.all(Array.from({ length: Math.min(max, lista.length) }, obrero));
+  return out;
+}
+
+const conPuntos = (cuerpo) => String(cuerpo).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 /* ── RUT: normalizar y comprobar el dígito verificador ────────────────
  * Un RUT mal copiado se detecta aquí y no se gasta una consulta.
@@ -83,16 +120,15 @@ async function buscarPaciente(env, { rut, nombre }) {
     // mirar el nombre. Cada ficha puede tenerlo escrito distinto —con
     // puntos, sin guion—, así que se prueban las formas habituales y, de
     // última, un «empieza por» sobre el cuerpo sin dígito verificador.
-    const cuerpo = limpio.split('-')[0];
-    const conPuntos = Number(cuerpo).toLocaleString('es-CL') + '-' + limpio.split('-')[1];
+    const [cuerpo, dv] = limpio.split('-');
     const intentos = [
       { rut: { eq: limpio } },
-      { rut: { eq: conPuntos } },
-      { rut: { eq: cuerpo + limpio.split('-')[1] } },
+      { rut: { eq: conPuntos(cuerpo) + '-' + dv } },
+      { rut: { eq: cuerpo + dv } },
       { rut: { lk: cuerpo } },
     ];
     for (const q of intentos) {
-      const r = await pedir(env, '/pacientes', q);
+      const r = await pedirTodo(env, '/pacientes', { q }, 5);
       if (!r.ok) return r;
       const lista = (Array.isArray(r.data) ? r.data : [])
         .filter((p) => rutLimpio(p.rut) === limpio);
@@ -111,7 +147,7 @@ async function buscarPaciente(env, { rut, nombre }) {
   }
   // el nombre de pila basta: los apellidos suelen venir en otra columna
   const primera = texto.split(/\s+/)[0];
-  const r = await pedir(env, '/pacientes', { nombre: { lk: primera } });
+  const r = await pedirTodo(env, '/pacientes', { q: { nombre: { lk: primera } } }, 5);
   if (!r.ok) return r;
 
   const lista = (Array.isArray(r.data) ? r.data : []).filter((p) => parecido(p, texto));
@@ -137,9 +173,22 @@ function parecido(paciente, buscado) {
 async function presupuesto(env, idTratamiento) {
   const [desglose, detalles] = await Promise.all([
     pedir(env, `/tratamientos/${idTratamiento}/desgloce-por-seccion`),
-    pedir(env, `/tratamientos/${idTratamiento}/detalles`),
+    pedirTodo(env, `/tratamientos/${idTratamiento}/detalles`),
   ]);
   if (!detalles.ok) return detalles;
+
+  /* El PDF de Dentalink agrupa por la categoría de cada prestación
+     (Higiene, Corona, Carillas…), no por secciones: esas casi siempre
+     vienen sin nombre. Así que la categoría es la fase propuesta, y una
+     sección solo manda si alguien le puso nombre. */
+  const filas = Array.isArray(detalles.data) ? detalles.data : [];
+  const ids = [...new Set(filas.map((d) => d.id_prestacion).filter((x) => x != null))].slice(0, 60);
+  const categoriaDe = {};
+  await enTandas(ids, 6, async (idp) => {
+    const r = await pedir(env, `/prestaciones/${encodeURIComponent(idp)}`);
+    const c = r.ok && r.data ? (Array.isArray(r.data) ? r.data[0] : r.data) : null;
+    if (c && c.nombre_categoria) categoriaDe[idp] = String(c.nombre_categoria).trim();
+  });
 
   const secciones = (desglose.ok && desglose.data && desglose.data.secciones) || [];
   // de qué sección viene cada prestación, para proponerla como fase
@@ -163,7 +212,7 @@ async function presupuesto(env, idTratamiento) {
       pagado: num(d.pagado),
       realizada: !!d.realizado,
       estado: d.realizado ? 'Realizada' : 'Pendiente',
-      seccion: seccionDe[d.id] || '',
+      seccion: seccionDe[d.id] || categoriaDe[d.id_prestacion] || 'Tratamiento',
     };
   });
 
@@ -172,12 +221,10 @@ async function presupuesto(env, idTratamiento) {
     ok: true,
     data: {
       prestaciones,
-      secciones: secciones.map((s) => ({
-        nombre: (s.nombre_seccion || '').trim(),
-        total: num(s.total_seccion),
-        abonado: num(s.abonado_seccion),
-        deuda: num(s.deuda_seccion),
-      })).filter((s) => s.nombre),
+      secciones: [...new Set(prestaciones.map((x) => x.seccion))].map((nombre) => ({
+        nombre,
+        total: prestaciones.filter((x) => x.seccion === nombre).reduce((a, x) => a + x.total, 0),
+      })),
       resumen: {
         total: num(g.total),
         abonado: num(g.abonado),
@@ -204,7 +251,7 @@ export async function dentalink(request, env, pathname) {
   /* Diagnóstico: comprueba que el token sirve y muestra qué llegó.
      Es lo primero que conviene mirar al conectar la clínica. */
   if (resto === '/prueba') {
-    const r = await pedir(env, '/pacientes', { id: { gt: 0 } });
+    const r = await pedir(env, '/pacientes');
     return r.ok
       ? json({ ok: true, pacientes: Array.isArray(r.data) ? r.data.length : 0, muestra: (r.data || [])[0] || null })
       : json({ error: r.error }, r.estado);
@@ -231,7 +278,7 @@ export async function dentalink(request, env, pathname) {
   if (resto === '/tratamientos') {
     const id = url.searchParams.get('paciente');
     if (!id) return json({ error: 'Falta el paciente' }, 400);
-    const r = await pedir(env, `/pacientes/${encodeURIComponent(id)}/tratamientos`);
+    const r = await pedirTodo(env, `/pacientes/${encodeURIComponent(id)}/tratamientos`, {}, 10);
     if (!r.ok) return json({ error: r.error }, r.estado);
     const lista = (Array.isArray(r.data) ? r.data : []).map((t) => ({
       id: t.id,
@@ -240,6 +287,8 @@ export async function dentalink(request, env, pathname) {
       total: num(t.total),
       deuda: num(t.deuda),
       finalizado: !!t.finalizado,
+      /* los «Diagnóstico» que Dentalink crea solo con cada cita vienen en cero */
+      conMonto: num(t.total) > 0,
     }));
     // el más reciente primero: es casi siempre el que se está cotizando
     lista.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
