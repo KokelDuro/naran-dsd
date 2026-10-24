@@ -130,6 +130,19 @@ textarea.in{resize:vertical;min-height:84px;line-height:1.55}
 .g-link{background:none;border:0;box-shadow:none;padding:4px;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer;text-align:center}
 .g-link:hover{color:var(--ink);text-decoration:underline}
 body.solo-lectura .case .del{display:none}
+.pasos-guia{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:10px}
+.pasos-guia li{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:14px 16px;border-radius:14px;box-shadow:var(--in-s)}
+.pasos-guia li b{display:block;font-size:14.5px}
+.pasos-guia li small{display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.45}
+.pasos-guia .nro{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--brand);box-shadow:var(--up-xs)}
+.pasos-guia li.hecho .nro{background:var(--brand);color:#fff;box-shadow:none}
+.pasos-guia li.hecho .nro::before{content:'✓'}
+.pasos-guia li.hecho .nro span{display:none}
+.pasos-guia li.actual{box-shadow:var(--in-s),0 0 0 2px color-mix(in srgb,var(--brand) 45%,transparent)}
+@media (max-width:640px){.pasos-guia li{grid-template-columns:auto 1fr}.pasos-guia li>.btn{grid-column:1/-1}}
+.s4-ejec{display:none;gap:10px;flex-wrap:wrap}
+body.solo-lectura .s4-ejec{display:flex}
+body.solo-lectura #s4-seguir{display:none}
 body.solo-lectura #s0 .learn .btn{display:none}
 button.usuario{border:0;background:none;box-shadow:none;font:inherit;cursor:pointer;border-radius:10px;padding:4px 6px}
 button.usuario:hover{color:var(--ink)}
@@ -572,10 +585,34 @@ button.usuario:hover{color:var(--ink)}
         </div>
       </section>
 
+      <section class="card guia" id="hc-guia" hidden>
+        <div class="card-h"><h2>Qué hacer con este caso</h2><span class="pill" id="hc-guia-estado">4 pasos</span></div>
+        <ol class="pasos-guia">
+          <li id="g1"><span class="nro"><span>1</span></span><div><b>Mira la presentación del paciente</b><small>Las láminas que se le mostraron en la consulta.</small></div>
+            <button class="btn ghost" type="button" id="g-ver-dsd">Ver presentación</button></li>
+          <li id="g2"><span class="nro"><span>2</span></span><div><b>Lee los documentos internos</b><small>Tips de venta, plan clínico y propuesta por fases. Salen de lo que se habló en la consulta.</small></div>
+            <button class="btn ghost" type="button" id="g-ver-docs">Leer documentos</button></li>
+          <li id="g3"><span class="nro"><span>3</span></span><div><b>Crea el presupuesto en Dentalink</b><small id="g3-info">Con el plan clínico y las fases, arma el presupuesto en la ficha del paciente.</small>
+            <div id="g3-rut" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"></div></div></li>
+          <li id="g4"><span class="nro"><span>4</span></span><div><b>Tráelo a la página</b><small id="g4-info">Lo buscamos en Dentalink con el RUT y eliges cuál presentar.</small></div>
+            <button class="btn" type="button" id="g-traer">Traer de Dentalink</button></li>
+        </ol>
+      </section>
+
       <section class="card">
         <div class="card-h"><h2>Láminas</h2><span class="pill" id="hc-nlam">—</span></div>
         <p class="hint" id="hc-lam-nota">Las láminas tal como quedaron, con las fotos en su sitio.</p>
         <div class="sv-list" id="hc-laminas" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px"></div>
+      </section>
+
+      <section class="card" id="hc-internos">
+        <div class="card-h"><h2>Documentos internos</h2><span class="pill">para el equipo</span></div>
+        <p class="hint">Tócalos para leerlos en grande.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">
+          <div class="it"><div class="dv" data-kind="tips"></div><small>Tips de venta</small></div>
+          <div class="it"><div class="dv" data-kind="plan"></div><small>Plan clínico</small></div>
+          <div class="it"><div class="dv" data-kind="fases"></div><small>Propuesta por fases</small></div>
+        </div>
       </section>
 
       <section class="card">
@@ -816,7 +853,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   <div class="screen" id="s4" hidden>
     <div class="head">
       <div><span class="eyebrow">Paso 4 de 5 · opcional</span><h1>Propuesta</h1><p>Presentación aparte para el cierre: plan por fases y formas de pago. Los precios salen del presupuesto de Dentalink; los descuentos son tuyos.</p></div>
-      <button class="btn" data-go="5">Continuar a entrega <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="s4-seguir" data-go="5">Continuar a entrega <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      <div class="s4-ejec"><button class="btn ghost" type="button" id="s4-volver">Volver al caso</button><button class="btn" type="button" id="s4-guardar">Guardar en el caso</button></div>
     </div>
     <div class="prop">
       <div class="stack">
@@ -1540,6 +1578,97 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
   /* ── La ficha del caso: lo que quedó hecho ──────────────────────────── */
   var fichaCaso=null;
+  /* ── El flujo del ejecutivo ──────────────────────────────────────────
+   * Abre el paciente, mira la presentación, lee los documentos internos,
+   * arma el presupuesto en Dentalink y lo trae. Cuatro pasos numerados en
+   * la ficha, cada uno con su botón, y el que toca resaltado.
+   */
+  function rutDelCaso(c){ return (val('f-rut')||(c&&(c.rut||(c.datos||{}).rut))||'').trim(); }
+  function tienePropuesta(c){
+    var d=(c&&c.datos)||{};
+    return ((d.presupuestos||[]).some(function(pr){return (pr.prest||[]).length;}))||
+           !!(d.prop&&(d.prop.prest||[]).length)||prest.length>0;
+  }
+  function pintarGuia(c){
+    var g=document.getElementById('hc-guia'); if(!g)return;
+    g.hidden=rolActual!=='ejecutivo';
+    if(g.hidden)return;
+    var rut=rutDelCaso(c), listo=tienePropuesta(c);
+    var r=document.getElementById('g3-rut');
+    r.innerHTML=rut
+      ? '<span style="font-size:13px;flex:1 1 260px">'+esc(c.nombre||'')+' · RUT <b style="white-space:nowrap">'+esc(rut)+'</b></span>'+
+        '<button class="btn ghost" type="button" id="g-copiar" style="padding:7px 12px">Copiar RUT</button>'
+      : '<span style="font-size:12.5px;color:var(--warn)">Este caso no tiene RUT. Escríbelo para poder buscarlo:</span>'+
+        '<input class="in" id="g-rut-in" placeholder="12.345.678-9" style="max-width:170px;padding:8px 12px">'+
+        '<button class="btn ghost" type="button" id="g-rut-ok" style="padding:7px 12px">Usar este RUT</button>';
+    document.getElementById('g4-info').textContent=listo
+      ? 'Ya hay un presupuesto cargado. Puedes traer otro o cambiarlo; la propuesta se descarga abajo, en Documentos.'
+      : 'Lo buscamos en Dentalink con el RUT y eliges cuál presentar.';
+    document.getElementById('g-traer').textContent=listo?'Cambiar presupuesto':'Traer de Dentalink';
+    ['g1','g2','g3','g4'].forEach(function(id){var li=document.getElementById(id);li.classList.remove('hecho','actual');});
+    if(listo){ ['g1','g2','g3','g4'].forEach(function(id){document.getElementById(id).classList.add('hecho');}); }
+    else document.getElementById('g4').classList.add('actual');
+    document.getElementById('hc-guia-estado').textContent=listo?'Presupuesto listo':'Falta el presupuesto';
+    document.getElementById('hc-guia-estado').className='pill '+(listo?'ok':'warn');
+  }
+
+  document.getElementById('hc-guia').addEventListener('click',async function(e){
+    if(e.target.closest('#g-ver-dsd')){
+      var lam=[].slice.call(document.querySelectorAll('#hc-laminas .sv'));
+      if(lam.length)openLb(lam,0); else aviso('Sin láminas','Este caso no tiene presentación armada.');
+      return;
+    }
+    if(e.target.closest('#g-ver-docs')){
+      var docs=[].slice.call(document.querySelectorAll('#hc-internos .dv'));
+      docs.forEach(drawDv); openLb(docs,0);
+      return;
+    }
+    if(e.target.closest('#g-copiar')){
+      var rut=rutDelCaso(fichaCaso);
+      try{ await navigator.clipboard.writeText(rut); aviso('RUT copiado',rut+' · pégalo en el buscador de Dentalink.'); }
+      catch(err){ aviso('No se pudo copiar','Cópialo a mano: '+rut,true); }
+      return;
+    }
+    if(e.target.closest('#g-rut-ok')){
+      var v=(document.getElementById('g-rut-in').value||'').trim();
+      if(!v){ aviso('Falta el RUT','Escríbelo y vuelve a apretar.'); return; }
+      document.getElementById('f-rut').value=v;
+      pintarGuia(fichaCaso);
+      return;
+    }
+    if(e.target.closest('#g-traer')){
+      if(!cfgApp.dentalink){ aviso('Dentalink no está conectado','Pídele al administrador que cargue el token.',true); return; }
+      if(!rutDelCaso(fichaCaso)){ aviso('Falta el RUT','Escríbelo en el paso 3 antes de traer el presupuesto.',true); return; }
+      /* búsqueda limpia: lo que se elija reemplaza a lo que hubiera */
+      dlReiniciar(); dlPausaHasta=0;
+      go(4);
+      dlBuscar(true);
+    }
+  });
+
+  document.getElementById('s4-volver').addEventListener('click',function(){
+    go(0); if(fichaCaso)pintarGuia(fichaCaso);
+  });
+  document.getElementById('s4-guardar').addEventListener('click',async function(){
+    var b=this; if(!casoActual){ aviso('No hay caso abierto','Vuelve al historial y abre el paciente.',true); return; }
+    if(!prest.length&&!presupuestosVivos().length){ aviso('Todavía no hay presupuesto','Busca en Dentalink, marca el presupuesto y aprieta «Cargar los elegidos».',true); return; }
+    b.disabled=true; var txt=b.textContent; b.textContent='Guardando…';
+    try{
+      await guardarCaso((casoActual&&casoActual.estado)||'revisado');
+      fichaCaso=cases.filter(function(x){return String(x.id)===String(casoActual.id);})[0]||fichaCaso;
+      go(0);
+      await mostrarFicha(fichaCaso,{fotos:Object.keys(photos).length,faltan:0});
+      aviso('Presupuesto guardado en el caso','Ya puedes descargar la propuesta abajo, en Documentos.');
+    }catch(err){
+      var m=(err&&err.message)||String(err);
+      aviso('No se pudo guardar',
+        /row-level security|permission|policy|0 rows|JSON object requested/i.test(m)
+          ? 'Tu usuario todavía no tiene permiso para guardar en el caso. Pídele al administrador que corra 06_ejecutivo_guarda.sql en Supabase.'
+          : m, true);
+    }
+    b.disabled=false; b.textContent=txt;
+  });
+
   function verHistorial(){
     fichaCaso=null;
     document.getElementById('hist-lista').hidden=false;
@@ -1573,6 +1702,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     caja.querySelectorAll('.sv').forEach(drawSv);
     document.getElementById('hc-nlam').textContent=vis.length||'—';
     document.getElementById('hc-editar').hidden=soloLectura;
+    document.querySelectorAll('#hc-internos .dv').forEach(drawDv);
+    pintarGuia(c);
     /* ¿quedaron fotos solo en este equipo? se puede empujarlas */
     var sinSubir=Object.keys(photos).filter(function(id){return photos[id].file&&photos[id].subidaEn!==c.id+'/'+id;});
     var bs=document.getElementById('hc-subir');
@@ -1670,11 +1801,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       }catch(err){ console.error('[varios]',e2.clave,err); fallos.push(e2.nombre); }
       if(i<elegidos.length-1)await new Promise(function(r){setTimeout(r,700);});
     }
-    if(!soloLectura){
-      try{ await guardarCaso((casoActual&&casoActual.estado)||'revisado');
-           fichaCaso=cases.filter(function(x){return String(x.id)===String(fichaCaso.id);})[0]||fichaCaso; }
-      catch(err2){ console.warn('[archivar]',err2); }
-    }
+    try{ await guardarCaso((casoActual&&casoActual.estado)||'revisado');
+         fichaCaso=cases.filter(function(x){return String(x.id)===String(fichaCaso.id);})[0]||fichaCaso; }
+    catch(err2){ console.warn('[archivar]',err2); }
     pintarDocsFicha(fichaCaso);
     b.disabled=false; b.textContent='Descargar los elegidos';
     if(fallos.length)aviso('Faltaron '+fallos.length,'No se pudieron preparar: '+fallos.join(', '),true);
@@ -1734,11 +1863,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         b.textContent='Generando…';
         aviso('Preparando '+nom,'Puede tardar unos segundos; te aviso cuando esté.');
         await generarArchivo(clave,nom,function(f){b.textContent='Generando… '+Math.round(f*100)+' %';});
-        /* queda archivado, salvo que quien mira no pueda escribir */
-        if(!soloLectura){
-          try{ await guardarCaso((casoActual&&casoActual.estado)||'revisado'); fichaCaso=cases.filter(function(x){return String(x.id)===String(fichaCaso.id);})[0]||fichaCaso; }
-          catch(err2){ console.warn('[archivar]',err2); }
-        }
+        /* queda archivado; si el rol no tiene permiso, igual se descargó */
+        try{ await guardarCaso((casoActual&&casoActual.estado)||'revisado'); fichaCaso=cases.filter(function(x){return String(x.id)===String(fichaCaso.id);})[0]||fichaCaso; }
+        catch(err2){ console.warn('[archivar]',err2); }
         pintarDocsFicha(fichaCaso);
         aviso('Listo: '+nom,'Se descargó y quedó guardado en el caso. La próxima vez sale al instante.');
       }
@@ -4295,9 +4422,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var nuevo=document.getElementById('btn-nuevo'); if(nuevo)nuevo.hidden=soloLectura;
     document.body.classList.toggle('solo-lectura',soloLectura);
     var h=document.querySelector('#s0 .head p');
-    if(h&&soloLectura)h.textContent='Los casos que el equipo ya trabajó. Ábrelos para ver las láminas y descargar los documentos.';
+    if(h&&soloLectura)h.textContent='Abre un paciente y sigue los cuatro pasos: mirar, leer, armar el presupuesto en Dentalink y traerlo.';
+    var p4=document.querySelector('#s4 .head p');
+    if(p4&&soloLectura)p4.textContent='Busca el presupuesto que armaste en Dentalink, márcalo y apreta «Cargar los elegidos». Cuando se vea bien abajo, «Guardar en el caso».';
     if(soloLectura)go(0);
   }
+
+  /* Solo en el equipo de desarrollo: probar los roles sin una sesión real. */
+  if(/^(localhost|127\.0\.0\.1)$/.test(location.hostname))window.__probarRol=aplicarRol;
 
   function mostrarUsuario(perfil){
     var u=document.getElementById('usuario');
