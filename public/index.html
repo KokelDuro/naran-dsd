@@ -2804,20 +2804,19 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     dlEstado('Buscando el plan…'); dlNota(pac.nombre+(pac.rut?' · '+pac.rut:''));
     try{
       var t=await dlPedir('/tratamientos?paciente='+encodeURIComponent(pac.id));
-      /* Dentalink crea un «Diagnóstico» vacío con cada cita, así que casi
-         todo paciente tiene varios planes. Se toma solo el más reciente que
-         tenga montos y los demás quedan a mano para cambiar o sumar. */
-      var todos=t.tratamientos||[];
-      var abiertos=todos.filter(function(x){return !x.finalizado;});
-      var conMonto=abiertos.filter(function(x){return x.conMonto||x.total>0;});
-      var candidatos=conMonto.length?conMonto:(abiertos.length?abiertos:todos);
-      if(!candidatos.length){
+      /* Se muestran todos y se elige: uno o varios. Primero los que tienen
+         montos, después los vacíos —Dentalink crea un «Diagnóstico» en
+         cero con cada cita— y al final los ya finalizados. */
+      var todos=(t.tratamientos||[]).slice();
+      var peso=function(x){ return x.finalizado?2:((x.conMonto||x.total>0)?0:1); };
+      todos.sort(function(a,b){ return peso(a)-peso(b)||String(b.fecha).localeCompare(String(a.fecha)); });
+      if(!todos.length){
         dlEstado('Sin presupuesto','warn');
-        dlNota(pac.nombre+' no tiene planes de tratamiento cargados en Dentalink.');
+        dlNota(pac.nombre+' no tiene presupuestos cargados en Dentalink.');
         return;
       }
-      DL.planes=candidatos;
-      await dlConPlan(candidatos[0]);
+      DL.planes=todos;
+      dlMostrarPlanes();
     }catch(e){ dlFallo(e); }
   }
 
@@ -2825,31 +2824,75 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
   /* Los otros planes del paciente: se puede cambiar al que se cotiza o
      sumarlo como un presupuesto más. */
+  /* La lista de presupuestos del paciente para elegir. Lo que se marque
+     reemplaza a lo que hubiera en la propuesta; si son varios, entran
+     como presupuestos separados y abajo se decide si se suman. */
+  function dlMostrarPlanes(){
+    var caja=document.getElementById('dl-elige'); if(!caja)return;
+    var planes=DL.planes||[];
+    var cargados={};
+    presupuestos.forEach(function(pr){ if(pr.idDentalink)cargados[pr.idDentalink]=1; });
+    if(!presupuestos.length&&DL.tratamiento&&prest.length)cargados[DL.tratamiento.id]=1;
+    var conMonto=planes.filter(function(x){return !x.finalizado&&(x.conMonto||x.total>0);});
+    /* si hay uno solo con montos y nada cargado, se deja marcado: igual hay que confirmarlo */
+    var marcarSolo=conMonto.length===1&&!Object.keys(cargados).length;
+    dlEstado(planes.length===1?'1 presupuesto':planes.length+' presupuestos');
+    caja.innerHTML='<small style="font-size:12px;color:var(--muted)">Elige qué presupuestos quieres presentar. Si marcas más de uno, van separados y abajo decides si se suman.</small>'+
+      planes.map(function(x){
+        var marcado=cargados[x.id]||(marcarSolo&&x===conMonto[0]);
+        var etiqueta=x.finalizado?'finalizado':((x.conMonto||x.total>0)?'':'sin montos');
+        return '<label class="file" style="cursor:pointer;padding:10px 12px'+(etiqueta?';opacity:.62':'')+'">'+
+          '<input type="checkbox" data-plan="'+x.id+'"'+(marcado?' checked':'')+'><span class="chk"></span>'+
+          '<div class="finfo"><b>'+esc(x.nombre||'Plan')+'</b><small>'+
+            esc([x.fecha?fechaCorta(x.fecha):'',x.total?clp(x.total):'',etiqueta].filter(Boolean).join(' · '))+'</small></div>'+
+        '</label>';
+      }).join('')+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+
+        '<button class="btn" type="button" id="dl-cargar">Cargar los elegidos</button>'+
+        '<small style="font-size:12px;color:var(--muted)" id="dl-cuantos"></small>'+
+      '</div>';
+    caja.hidden=false;
+    var contar=function(){
+      var k=caja.querySelectorAll('[data-plan]:checked').length;
+      document.getElementById('dl-cargar').disabled=!k;
+      document.getElementById('dl-cuantos').textContent=k?(k===1?'1 elegido':k+' elegidos'):'Marca al menos uno';
+    };
+    contar();
+    caja.onchange=function(e){ if(e.target.matches('[data-plan]'))contar(); };
+    caja.onclick=async function(e){
+      if(!e.target.closest('#dl-cargar'))return;
+      var ids=[].slice.call(caja.querySelectorAll('[data-plan]:checked')).map(function(c){return c.dataset.plan;});
+      var elegidos=planes.filter(function(x){return ids.indexOf(String(x.id))>=0;});
+      if(elegidos.length)await dlCargarElegidos(elegidos);
+    };
+  }
+
+  /* Los elegidos pasan a ser los presupuestos de la propuesta, en el
+     orden de la lista. Se cargan de a uno para no apurar a Dentalink. */
+  async function dlCargarElegidos(elegidos){
+    presupuestos=[]; activoPres=0;
+    prest=[]; grupos=[]; fasesExtra=[]; faseOff={}; resumenPDF=null; fuentePresupuesto='ficha';
+    var caja=document.getElementById('dl-elige'); if(caja){ caja.hidden=true; caja.onclick=null; caja.onchange=null; }
+    for(var i=0;i<elegidos.length;i++){
+      if(i>0){ nuevoPresupuesto(nombrePlan(elegidos[i])); }
+      dlEstado('Trayendo '+(i+1)+' de '+elegidos.length+'…');
+      await dlConPlan(elegidos[i]);
+      if(!DL.hecho)break;
+    }
+    if(presupuestos.length)cargarActivo(0);
+    renderTable(); renderTotals(); pintarPresupuestos();
+    if(elegidos.length>1)dlEstado('Listo · '+elegidos.length+' presupuestos','ok');
+    pintarOtrosPlanes();
+  }
+
+  /* Ya cargados, queda a mano volver a la lista sin consultar de nuevo. */
   function pintarOtrosPlanes(){
     var caja=document.getElementById('dl-elige'); if(!caja)return;
-    var usados={};
-    presupuestos.forEach(function(pr){ if(pr.idDentalink)usados[pr.idDentalink]=1; });
-    if(DL.tratamiento)usados[DL.tratamiento.id]=1;
-    var otros=(DL.planes||[]).filter(function(x){return !usados[x.id];});
-    if(!otros.length){ caja.hidden=true; caja.innerHTML=''; caja.onclick=null; return; }
-    caja.innerHTML='<small style="font-size:12px;color:var(--muted)">'+
-        (otros.length===1?'Este paciente tiene otro plan:':'Este paciente tiene '+otros.length+' planes más:')+'</small>'+
-      otros.map(function(x){
-        return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-          '<span style="flex:1;min-width:170px;font-size:13px"><b>'+esc(x.nombre||'Plan')+'</b> '+
-          '<small style="color:var(--muted)">'+esc([x.fecha?fechaCorta(x.fecha):'',x.total?clp(x.total):''].filter(Boolean).join(' · '))+'</small></span>'+
-          '<button class="btn ghost" type="button" data-plan-usar="'+x.id+'" style="padding:8px 12px">Cotizar este</button>'+
-          '<button class="btn ghost" type="button" data-plan-sumar="'+x.id+'" style="padding:8px 12px">Agregar como otro presupuesto</button>'+
-        '</div>';
-      }).join('');
+    if(!(DL.planes||[]).length||(DL.planes.length<2)){ caja.hidden=true; caja.innerHTML=''; return; }
+    caja.innerHTML='<div><button class="btn ghost" type="button" id="dl-cambiar" style="padding:8px 12px">Cambiar los presupuestos elegidos</button></div>';
     caja.hidden=false;
-    caja.onclick=async function(e){
-      var u=e.target.closest('[data-plan-usar]'), a=e.target.closest('[data-plan-sumar]');
-      var id=(u||a)&&(u||a).getAttribute(u?'data-plan-usar':'data-plan-sumar'); if(!id)return;
-      var plan=(DL.planes||[]).filter(function(x){return String(x.id)===String(id);})[0]; if(!plan)return;
-      if(a){ nuevoPresupuesto(nombrePlan(plan)); renderTable(); renderTotals(); pintarPresupuestos(); }
-      await dlConPlan(plan);
-    };
+    caja.onchange=null;
+    caja.onclick=function(e){ if(e.target.closest('#dl-cambiar'))dlMostrarPlanes(); };
   }
 
   /* La categoría de una prestación (Higiene, Corona…) casi nunca cambia,
@@ -2888,6 +2931,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     dlEstado('Trayendo el presupuesto…');
     try{
       var d=await dlPedir('/presupuesto?tratamiento='+encodeURIComponent(plan.id));
+      DL.hecho=false;
       var aviso=await completarFases(d);
       dlAplicar(d,plan);
       if(aviso)dlNota(document.getElementById('dl-nota').textContent+' — algunas fases quedaron como «Tratamiento»: '+aviso);
@@ -2942,7 +2986,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     setState('Desde Dentalink · '+prest.length+' prestaciones','ok');
   }
 
-  window.dlAlTerminarAnalisis=function(){ if(cfgApp.dentalink&&!DL.hecho&&Date.now()>dlPausaHasta)dlBuscar(false); };
+  window.dlAlTerminarAnalisis=function(){ if(cfgApp.dentalink&&!DL.hecho&&!(DL.planes&&DL.planes.length)&&Date.now()>dlPausaHasta)dlBuscar(false); };
 
   var dlBtn=document.getElementById('dl-buscar');
   if(dlBtn)dlBtn.addEventListener('click',function(){ DL.hecho=false; dlReiniciar(); dlBuscar(true); });
