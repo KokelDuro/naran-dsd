@@ -136,6 +136,10 @@ la página sigue funcionando: las fotos se guardan solo en el equipo donde se
 trabajó, y al abrir el caso en otro computador aparecen los textos sin las
 imágenes.
 
+Para que también se guarden los audios (y se pueda volver a analizar un caso), corre
+además `app/supabase/07_audios_en_archivo.sql`: abre el bucket a audio y video y sube
+el límite a 50 MB por archivo. Ojo con el espacio: el plan gratis trae 1 GB.
+
 Para comprobarlo: guarda un caso con fotos, entra con la cuenta del ejecutivo
 desde otro navegador y ábrelo en el historial. Deben verse las láminas.
 

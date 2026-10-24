@@ -582,6 +582,7 @@ button.usuario:hover{color:var(--ink)}
           <button class="btn" type="button" id="hc-editar">Seguir editando</button>
           <button class="btn ghost" type="button" id="hc-volver">Volver al historial</button>
           <button class="btn ghost" type="button" id="hc-subir" hidden>Subir las fotos a la clínica</button>
+          <button class="btn ghost" type="button" id="hc-reanalizar" hidden>Volver a analizar la consulta</button>
         </div>
       </section>
 
@@ -1162,10 +1163,10 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     clinica:null,
     hayNube:function(){return !!(Store.modo==='supabase'&&window.SB&&this.clinica);},
     _ruta:function(clave){return this.clinica+'/'+clave;},
-    subir:async function(clave,blob){
+    subir:async function(clave,blob,tipo){
       if(!this.hayNube())return false;
       var r=await window.SB.storage.from('casos').upload(this._ruta(clave),blob,
-        {upsert:true,contentType:blob.type||'application/octet-stream'});
+        {upsert:true,contentType:tipo||blob.type||'application/octet-stream'});
       if(r.error)throw new Error(r.error.message);
       return true;
     },
@@ -1190,8 +1191,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var tiene={};
       if(!this.hayNube())return tiene;
       var base=this.clinica+'/'+id;
-      for(var i=0;i<2;i++){
-        var sub=i?base+'/doc':base, pre=i?id+'/doc/':id+'/';
+      var subs=['','/doc','/aud'];
+      for(var i=0;i<subs.length;i++){
+        var sub=base+subs[i], pre=id+subs[i]+'/';
         var r=await window.SB.storage.from('casos').list(sub,{limit:1000});
         if(!r.error)(r.data||[]).forEach(function(o){ if(o.name)tiene[pre+o.name]=true; });
       }
@@ -1201,8 +1203,9 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       if(!this.hayNube())return;
       var base=this.clinica+'/'+id;
       var caminos=[];
-      for(var i=0;i<2;i++){
-        var sub=i?base+'/doc':base;
+      var subs=['','/doc','/aud'];
+      for(var i=0;i<subs.length;i++){
+        var sub=base+subs[i];
         var r=await window.SB.storage.from('casos').list(sub,{limit:1000});
         if(!r.error)(r.data||[]).forEach(function(o){if(o.name)caminos.push(sub+'/'+o.name);});
       }
@@ -1347,10 +1350,18 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
               z:f.z||1,fx:f.fx==null?0.5:f.fx,fy:f.fy==null?0.5:f.fy};
     });
     /* la propuesta: prestaciones, fases y de dónde salieron los montos */
-    d.archivos=Object.keys(docsGenerados).map(function(nom){
+    /* Los documentos de antes siguen en la lista: antes se perdían al
+       guardar un caso reabierto, porque solo se anotaban los de esta vez. */
+    var nuevosDocs=Object.keys(docsGenerados).map(function(nom){
       var b=docsGenerados[nom];
       return {nombre:nom,tam:b.size||0,tipo:b.type||''};
     });
+    d.archivos=archivosPrevios.filter(function(a){return !docsGenerados[a.nombre];}).concat(nuevosDocs);
+    d.audios=audios.map(function(a,i){
+      return {n:nomAud(a),tam:tamAud(a),tipo:a.tipo||tipoAudio(a.f),dur:a.dur||0,
+              rel:a.rel||('aud/a'+(i+1)+extAud(a.f)),soloLocal:!!a.soloLocal};
+    });
+    d.transcripcionConsulta=transcripcion?{nombre:transcripcion.nombre,texto:transcripcion.texto,lineas:transcripcion.lineas}:null;
     guardarActivo();
     d.presupuestos=presupuestos.map(function(pr){
       return {nombre:pr.nombre,idDentalink:pr.idDentalink||null,prest:(pr.prest||[]).map(function(r){return r.slice();}),
@@ -1382,13 +1393,16 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       var yaArriba={};
       if(Archivo.hayNube()){
         var falta=Object.keys(photos).some(function(x){return photos[x].file&&photos[x].subidaEn!==id+'/'+x;})
-               || Object.keys(docsGenerados).some(function(nm){return !docsSubidos[id+'/doc/'+nm];});
+               || Object.keys(docsGenerados).some(function(nm){return !docsSubidos[id+'/doc/'+nm];})
+               || audios.some(function(a){return a.f&&!a.subidoEn&&!a.soloLocal;});
         if(falta){ try{ yaArriba=await Archivo.listaNube(id); }catch(e){ console.warn('[nube]',e); } }
       }
       var cf=await guardarFotos(id,decir,yaArriba);
       var cd=await guardarDocs(id,decir,yaArriba);
-      ultimoGuardado.pendientes=cf.pendientes+cd.pendientes;
-      ultimoGuardado.fallo=cf.fallo||cd.fallo;
+      var ca=await guardarAudios(id,decir,yaArriba);
+      ultimoGuardado.pendientes=cf.pendientes+cd.pendientes+ca.pendientes;
+      ultimoGuardado.fallo=cf.fallo||cd.fallo||ca.fallo;
+      ultimoGuardado.soloLocal=ca.soloLocal;
     }catch(e){
       console.warn('[archivo]',e);
       aviso('Las fotos no se guardaron',(e&&e.message)||'El archivo de este equipo no respondió. Los textos sí quedaron guardados.',true);
@@ -1451,6 +1465,40 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     return cuenta;
   }
 
+  /* Los audios se guardan para poder volver a analizar el caso. Siempre
+     en este equipo; en la nube de la clínica si caben en el límite de
+     Supabase (50 MB por archivo en el plan gratis): un video largo se
+     queda solo aquí, y se avisa. */
+  var LIMITE_NUBE=48*1024*1024;
+  async function guardarAudios(id,avisar,yaArriba){
+    var cuenta={pendientes:0,fallo:null,soloLocal:0};
+    yaArriba=yaArriba||{};
+    for(var i=0;i<audios.length;i++){
+      var a=audios[i]; if(!a.rel)a.rel='aud/a'+(i+1)+extAud(a.f);
+      var clave=id+'/'+a.rel;
+      if(a.f&&a.guardadoEn!==clave){ await Archivo.guardar(clave,a.f); a.guardadoEn=clave; }
+      if(!Archivo.hayNube()||!a.f)continue;
+      if(a.f.size>LIMITE_NUBE){ a.soloLocal=true; cuenta.soloLocal++; continue; }
+      if(a.subidoEn===clave||yaArriba[clave]){ a.subidoEn=clave; continue; }
+      try{
+        if(avisar)avisar('Subiendo audio '+(i+1)+' de '+audios.length+'…');
+        await Archivo.subir(clave,a.f,tipoAudio(a.f)); a.subidoEn=clave;
+      }catch(e){ cuenta.pendientes++; cuenta.fallo=cuenta.fallo||e.message; }
+    }
+    return cuenta;
+  }
+
+  /* Antes de analizar, los audios que solo estaban guardados se bajan. */
+  async function materializarAudios(avisar){
+    for(var i=0;i<audios.length;i++){
+      var a=audios[i]; if(a.f)continue;
+      if(avisar)avisar('Bajando el audio guardado '+(i+1)+' de '+audios.length+'…');
+      var b=await Archivo.obtener(a.guardadoEn);
+      if(!b)throw new Error('No encontré el audio «'+nomAud(a)+'» ni en este equipo ni en la clínica.');
+      a.f=new File([b],nomAud(a),{type:a.tipo||b.type||''});
+    }
+  }
+
   var docsSubidos={};
   async function guardarDocs(id,avisar,yaArriba){
     var noms=Object.keys(docsGenerados), cuenta={pendientes:0,fallo:null};
@@ -1482,6 +1530,19 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var d=c.datos||{}, lista=d.fotos||[];
     Object.keys(photos).forEach(function(id){if(photos[id].u)URL.revokeObjectURL(photos[id].u);delete photos[id];});
     var faltan=0;
+
+    /* audios: si están en este equipo se cargan; si solo están en la
+       clínica se anotan y se bajan recién al volver a analizar */
+    audios=[];
+    (d.audios||[]).forEach(function(a){
+      if(!a||!a.rel)return;
+      audios.push({f:null,n:a.n,tam:a.tam,tipo:a.tipo,dur:a.dur||0,rel:a.rel,
+                   soloLocal:!!a.soloLocal,guardadoEn:c.id+'/'+a.rel,subidoEn:a.soloLocal?null:c.id+'/'+a.rel});
+    });
+    for(var q=0;q<audios.length;q++){
+      try{ var bl=await Archivo.leer(audios[q].guardadoEn); if(bl)audios[q].f=new File([bl],audios[q].n,{type:audios[q].tipo||bl.type||''}); }catch(e){}
+    }
+    transcripcion=d.transcripcionConsulta||null;
     for(var i=0;i<lista.length;i++){
       var f=lista[i], blob=null, clave=c.id+'/'+f.id;
       try{ blob=await Archivo.obtener(clave); }catch(e){ console.warn('[archivo]',e); }
@@ -1540,6 +1601,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   async function abrirCaso(c){
     casoActual={id:c.id,nombre:c.nombre,estado:c.estado};
     docsGenerados={};
+    archivosPrevios=((c.datos||{}).archivos||[]).slice();
     /* La página queda en blanco PRIMERO: así un caso al que le falte
        algún campo no hereda el texto del caso anterior ni el de ejemplo. */
     limpiarEjemplo();
@@ -1560,6 +1622,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     /* casos viejos: solo se guardaba si la lámina iba oculta */
     if(!arch.fotos)(d.laminas||[]).forEach(function(l,i){if(slides[i])slides[i].hidden=l.oculta;});
     try{ restaurarPropuesta(d); }catch(e){ console.warn('[propuesta]',e); }
+    try{ pintaInventario([]); }catch(e){}
 
     try{ render(); if(window.growAll2)growAll2(); if(window.refreshPreviews)refreshPreviews(); if(window.refreshFiles)refreshFiles(); }
     catch(e){ console.error('[abrir caso] al dibujar',e); }
@@ -1702,6 +1765,8 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     caja.querySelectorAll('.sv').forEach(drawSv);
     document.getElementById('hc-nlam').textContent=vis.length||'—';
     document.getElementById('hc-editar').hidden=soloLectura;
+    var ra=document.getElementById('hc-reanalizar');
+    if(ra){ var d0=c.datos||{}; ra.hidden=soloLectura||!((d0.audios||[]).length||d0.transcripcionConsulta); }
     document.querySelectorAll('#hc-internos .dv').forEach(drawDv);
     pintarGuia(c);
     /* ¿quedaron fotos solo en este equipo? se puede empujarlas */
@@ -1811,6 +1876,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   });
 
   document.getElementById('hc-volver').addEventListener('click',verHistorial);
+  document.getElementById('hc-reanalizar').addEventListener('click',function(){
+    verHistorial(); go(1);
+    var b=document.getElementById('btn-analizar')||document.querySelector('[data-analizar]');
+    if(b)b.scrollIntoView({block:'center',behavior:'smooth'});
+    aviso('Listo para volver a analizar','Los audios del caso están cargados. Aprieta «Analizar»: se actualizan los textos y las láminas quedan como están.');
+  });
   document.getElementById('hc-subir').addEventListener('click',async function(){
     var b=this, txt=b.textContent;
     b.disabled=true; b.textContent='Subiendo…';
@@ -2287,7 +2358,20 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     });
   }
 
-  var audios=[];               /* [{f,dur}] */
+  var audios=[];               /* [{f,dur}]; f es null si está guardado y aún no se bajó */
+  var reanalisis=false;        /* se está volviendo a analizar un caso ya armado */
+  /* Nombre y peso de un audio, esté cargado o solo guardado. */
+  function nomAud(a){ return a.f?a.f.name:(a.n||'audio'); }
+  function tamAud(a){ return a.f?a.f.size:(a.tam||0); }
+  /* Un .m4a del teléfono a veces llega sin tipo, y Storage lo rechaza. */
+  function tipoAudio(f){
+    if(f&&f.type)return f.type;
+    var m=/\.([a-z0-9]+)$/i.exec((f&&f.name)||''); var e=m?m[1].toLowerCase():'';
+    return {m4a:'audio/mp4',mp4:'video/mp4',mov:'video/quicktime',mp3:'audio/mpeg',wav:'audio/wav',
+            ogg:'audio/ogg',opus:'audio/ogg',aac:'audio/aac',webm:'audio/webm',flac:'audio/flac',
+            '3gp':'video/3gpp',amr:'audio/amr'}[e]||'application/octet-stream';
+  }
+  function extAud(f){ var m=/\.[a-z0-9]{1,5}$/i.exec((f&&f.name)||''); return m?m[0].toLowerCase():''; }
   var seqFoto=0;               /* ids únicos aunque se carguen en varias tandas */
   function pintaInventario(ignorados){
     var tr=transcripcion;
@@ -2300,7 +2384,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     }
     document.getElementById('aud-list').innerHTML=(
       (audios.length?audios.map(function(a){
-      return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(a.f.name)+'">'+esc(a.f.name)+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(a.f.size)+'</small></div>';
+      return '<div class="aud"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M8 7a4 4 0 0 0 8 0M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span title="'+esc(nomAud(a))+'">'+esc(nomAud(a))+'</span><small>'+(a.dur?mmss(a.dur)+' · ':'')+mb(tamAud(a))+(a.f?'':' · guardado, se baja al analizar')+'</small></div>';
     }).join(''):(tr?'<div class="ign" style="margin:0"><span>Con la transcripción cargada, el audio no hace falta.</span></div>'
                    :'<div class="ign" style="margin:0"><span>Ningún audio todavía.</span></div>')));
     var tot=audios.reduce(function(s,a){return s+(a.dur||0);},0);
@@ -2323,7 +2407,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
     var aud=[],fot=[],txts=[],ign=[],repetidos=0;
     /* lo que ya está cargado, para no duplicarlo si se suelta dos veces */
     var yaEstan={};
-    audios.forEach(function(a){yaEstan[huella(a.f)]=true;});
+    audios.forEach(function(a){yaEstan[nomAud(a)+'·'+tamAud(a)]=true;});
     Object.keys(photos).forEach(function(id){if(photos[id].orig)yaEstan[photos[id].orig]=true;});
 
     for(var i=0;i<lista.length;i++){var f=lista[i];
@@ -2394,14 +2478,14 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
 
     /* audios → se suman a los que ya había, en orden de nombre */
     var nuevos=aud.map(function(f){return {f:f,dur:0};});
-    audios=audios.concat(nuevos).sort(function(a,b){return a.f.name.localeCompare(b.f.name,'es',{numeric:true});});
+    audios=audios.concat(nuevos).sort(function(a,b){return nomAud(a).localeCompare(nomAud(b),'es',{numeric:true});});
     pintaInventario(ign);
     /* La duración solo sirve para mostrarla y para estimar la espera del
        análisis. Con una transcripción cargada el audio ni se manda, así
        que abrir cada archivo para medirlo —y un video pesa— es tiempo
        tirado. Cuando sí hace falta, se miden de a dos. */
     if(!transcripcion){
-      var porMedir=audios.filter(function(a){return !a.dur;});
+      var porMedir=audios.filter(function(a){return !a.dur&&a.f;});
       await enParalelo(porMedir,2,async function(a){
         a.dur=await duracion(a.f);
         pintaInventario(ign);
@@ -2484,7 +2568,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       presupuestos=[]; activoPres=0; sumarTratamientos=false;
       var pb=document.getElementById('pres-barra'); if(pb)pb.hidden=true;
       var pr=document.getElementById('pdf-resumen'); if(pr){pr.hidden=true;pr.innerHTML='';}
-      seqFoto=0; transcripcion=null;
+      seqFoto=0; transcripcion=null; archivosPrevios=[];
       var nota=document.getElementById('pdf-note'); if(nota)nota.textContent='';
       try{ renderTable(); renderTotals(); }catch(e){ console.warn('[nuevo caso] propuesta',e); }
       /* barras de progreso y avisos de la corrida anterior */
@@ -2629,6 +2713,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       fd.append('transcripcion',document.getElementById('f-trans').checked?'completa':'clave');
       var cab=await cabeceras();
       var subidos=0;
+      /* Si es un caso reabierto, los audios guardados se bajan ahora. */
+      if(!transcripcion)await materializarAudios(function(t){paso(6,t,'');});
+      /* Volver a analizar un caso con las láminas ya armadas: se actualizan
+         los textos y se respetan las láminas; las fotos no se reenvían. */
+      reanalisis=!!casoActual&&slides.some(function(sl){return sl.p&&sl.p.length;});
+      var casoExistente=!!casoActual;
       /* con transcripción no hace falta mandar el audio: es mucho más rápido */
       var mandarAudio=transcripcion?[]:audios;
       if(transcripcion)fd.append('texto_consulta',transcripcion.texto);
@@ -2641,7 +2731,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
         else fd.append('audio',mandarAudio[i].f,mandarAudio[i].f.name);
       });
       console.log('[analizar] audios subidos directo:',subidos,'de',mandarAudio.length,transcripcion?'(hay transcripción: no se manda audio)':'');
-      var ids=Object.keys(photos);
+      var ids=reanalisis?[]:Object.keys(photos);
       ids.forEach(function(id){
         var p2=photos[id], chica=p2.mini||p2.file;
         if(chica)fd.append('foto',chica,(p2.n||'foto')+'.jpg');
@@ -2672,6 +2762,12 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
       }
       paso(95,'Escribiendo los documentos…','');
       aplicarCaso(data.caso||{});
+      if(casoExistente){
+        /* los documentos de antes quedaron viejos: se vuelven a armar */
+        archivosPrevios=[]; docsGenerados={};
+        aviso('Análisis actualizado',(reanalisis?'Los textos son nuevos y las láminas quedaron como estaban. ':'Los textos son nuevos. ')+
+          'Los documentos se arman de nuevo con este análisis al pedirlos.');
+      }
       if(window.dlAlTerminarAnalisis)dlAlTerminarAnalisis();
       /* hay trabajo de verdad: el caso entra al historial como borrador */
       guardarBorrador(true).catch(function(e){console.warn('[borrador]',e);});
@@ -3826,6 +3922,7 @@ No plantear porcelana vs. resina como "mejor versus peor". Primero que compre el
   }
 
   var docsGenerados={};   /* {nombre: blob} de esta sesión de trabajo */
+  var archivosPrevios=[]; /* los documentos que el caso ya tenía al abrirlo */
   function bajar(blob,nombre){
     try{ docsGenerados[nombre]=blob; }catch(e){}
     var u=URL.createObjectURL(blob), a=document.createElement('a');
